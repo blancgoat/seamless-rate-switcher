@@ -2,7 +2,7 @@ import AppKit
 import NoteGlyph
 
 // 앱 아이콘 생성: iconmaker <출력.iconset>
-// 터미널 앱처럼 짙은 회색→검정 바탕, 가운데 흰 음표, 오른쪽 아래에 작게 "44.1k".
+// 터미널 앱처럼 짙은 회색→검정 바탕, 가운데 흰 8분음표–쉼표–8분음표(빔으로 이음), 두 음표 아래에 "48" / "44.1".
 
 guard CommandLine.arguments.count == 2 else {
     print("usage: iconmaker <output.iconset>")
@@ -58,11 +58,10 @@ func drawIcon(size: CGFloat, showLabel: Bool) -> NSBitmapImageRep {
         .draw(in: tile, angle: -90)
     NSGraphicsContext.restoreGraphicsState()
 
-    // 음표: 흰색→밝은 회색 그라데이션 + 아래로 부드러운 그림자
-    // 가운데 정렬. 도형의 무게중심이 18 좌표계에서 약간 아래(8.4)라 그만큼 올린다
-    let noteSide: CGFloat = 540
-    let noteRect = NSRect(x: 512 - noteSide / 2, y: 512 - noteSide / 2 + noteSide * 0.6 / 18, width: noteSide, height: noteSide)
-    let notes = NoteGlyph.shapes(in: noteRect)
+    // 8분음표 – 8분쉼표 – 8분음표 (빔으로 이음): 흰색→밝은 회색 그라데이션 + 아래로 부드러운 그림자
+    let noteSide: CGFloat = 660
+    let noteRect = NSRect(x: 512 - noteSide / 2, y: 540 - noteSide / 2, width: noteSide, height: noteSide)
+    let notes = NoteGlyph.beamedNotesWithRest(in: noteRect, restScale: 0.5)
     NSGraphicsContext.saveGraphicsState()
     let noteShadow = NSShadow()
     noteShadow.shadowColor = gray(0, 0.45)
@@ -79,14 +78,19 @@ func drawIcon(size: CGFloat, showLabel: Bool) -> NSBitmapImageRep {
     ctx.endTransparencyLayer()
     NSGraphicsContext.restoreGraphicsState()
 
-    // "44.1k": 오른쪽 아래에 작게. 터미널 느낌의 고정폭 글꼴, 흰색 계열
+    // 두 음표 머리 아래에 각각 샘플레이트: 왼쪽 48(이전 곡) → 쉼표 → 오른쪽 44.1(다음 곡).
+    // 터미널 느낌의 고정폭 글꼴, 흰색 계열. 단위 k는 빼서 작은 크기에서도 숫자를 크게 둔다
     if showLabel {
-        let label = NSAttributedString(string: "44.1k", attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 78, weight: .medium),
-            .foregroundColor: gray(0.80),
-        ])
-        let s = label.size()
-        label.draw(at: NSPoint(x: tile.maxX - 70 - s.width, y: tile.minY + 52))
+        let scale = noteSide / 24
+        let headXs = [noteRect.minX + 4.0 * scale, noteRect.minX + 19.4 * scale]  // NoteGlyph.beamedNotesWithRest의 음표 머리 위치
+        for (text, x) in zip(["48", "44.1"], headXs) {
+            let label = NSAttributedString(string: text, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 84, weight: .medium),
+                .foregroundColor: gray(0.80),
+            ])
+            let size = label.size()
+            label.draw(at: NSPoint(x: x - size.width / 2, y: tile.minY + 62))
+        }
     }
 
     NSGraphicsContext.restoreGraphicsState()

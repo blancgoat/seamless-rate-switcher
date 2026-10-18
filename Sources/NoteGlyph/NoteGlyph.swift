@@ -57,6 +57,47 @@ public enum NoteGlyph {
         return ([dot], [flag])
     }
 
+    /// 앱 아이콘용: 8분음표 – 8분쉼표 – 8분음표. 두 음표를 빔 하나로 잇고 쉼표는 빔 아래 두 기둥 사이에 둔다
+    /// (악보의 "beaming over rests" 표기). "곡 사이에 쉼표(무음)를 넣는다"는 앱 동작을 그대로 그린 것.
+    /// 가로 24 × 세로 18 설계 공간을 rect(정사각형)의 가운데에 맞춘다. 반환값은 모두 채우기용 도형.
+    public static func beamedNotesWithRest(in rect: NSRect, restScale: CGFloat = 0.5) -> [NSBezierPath] {
+        let rx = 2.6, ry = 1.9, tilt = 20 * Double.pi / 180
+        let reachX = (rx * rx * cos(tilt) * cos(tilt) + ry * ry * sin(tilt) * sin(tilt)).squareRoot()
+        let reachY = (rx * rx - ry * ry) * sin(tilt) * cos(tilt) / reachX
+        let stemWidth = 1.3, stemTop = 15.2, beamHeight = 2.6, headY = 3.6
+        let heads = [4.0, 19.4]
+
+        var paths: [NSBezierPath] = []
+        for cx in heads {
+            let head = NSBezierPath(ovalIn: NSRect(x: -rx, y: -ry, width: rx * 2, height: ry * 2))
+            var transform = AffineTransform(translationByX: cx, byY: headY)
+            transform.rotate(byRadians: tilt)
+            head.transform(using: transform)
+            paths.append(head)
+            paths.append(NSBezierPath(rect: NSRect(x: cx + reachX - stemWidth, y: headY + reachY,
+                                                   width: stemWidth, height: stemTop - headY - reachY)))
+        }
+        let beamLeft = heads[0] + reachX - stemWidth, beamRight = heads[1] + reachX
+        paths.append(NSBezierPath(rect: NSRect(x: beamLeft, y: stemTop - beamHeight, width: beamRight - beamLeft, height: beamHeight)))
+
+        // 쉼표: 두 기둥 사이 가운데, 빔 아래. 꼬리·기둥 선은 채우기 도형으로 바꿔 그라데이션을 입힐 수 있게 한다
+        let restSide = designSize * restScale
+        let midX = (heads[0] + reachX + heads[1] - rx) / 2 + 0.6
+        let restBox = NSRect(x: midX - restSide / 2, y: 2.2 + (stemTop - beamHeight - 2.2 - restSide) / 2 - 0.3,
+                             width: restSide, height: restSide)
+        let rest = restShapes(in: restBox)
+        paths += rest.fills
+        paths += rest.strokes.map {
+            NSBezierPath(cgPath: $0.cgPath.copy(strokingWithWidth: $0.lineWidth, lineCap: .round, lineJoin: .round, miterLimit: 10))
+        }
+
+        let scale = rect.width / 24
+        var fit = AffineTransform(translationByX: rect.minX, byY: rect.midY - 9 * scale)
+        fit.scale(scale)
+        paths.forEach { $0.transform(using: fit) }
+        return paths
+    }
+
     /// 메뉴바에 보이는 기호
     public enum Symbol {
         case note  // 평소: 8분음표 2개
