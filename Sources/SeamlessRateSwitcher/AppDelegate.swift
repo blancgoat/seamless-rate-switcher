@@ -4,7 +4,7 @@ import OSLog
 import RateCore
 import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSTextFieldDelegate {
     private let switcher = RateSwitcher()
     private var statusItem: NSStatusItem!
     private var history: [(Date, RateSwitcher.Message)] = []
@@ -18,8 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let readyScriptKey = "readyScriptPath"
     /// 장치가 rate 변경을 확인한 뒤에도 클럭을 다 잡기까지 수 초 걸리는 인터페이스가 많아 넉넉하게 잡는다
     private static let defaultSettleDelayMs = 5000
-    private static let sliderMaxMs = 10000.0
-    private static let inputMaxMs = 30000
+    private static let sliderMaxMs = 20000
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateDefaultsFromOldName()
@@ -126,9 +125,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let sliderItem = NSMenuItem()
                 sliderItem.view = makeSettleSliderView()
                 menu.addItem(sliderItem)
-                let input = NSMenuItem(title: "    " + L("Set Delay Manually…"), action: #selector(inputSettleDelay), keyEquivalent: "")
-                input.target = self
-                menu.addItem(input)
             } else {
                 // 스크립트가 준비 시점을 정하므로 고정 대기 시간은 숨긴다
                 menu.addItem(disabled: "    " + L("Delay: decided by the ready script"))
@@ -168,26 +164,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-
     // MARK: - 전환 시 일시정지
 
     private var settleEnabled: Bool { UserDefaults.standard.bool(forKey: Self.settleEnabledKey) }
     private var settleDelayMs: Int { UserDefaults.standard.integer(forKey: Self.settleDelayKey) }
-    private weak var settleLabel: NSTextField?
+    private weak var settleSlider: NSSlider?
+    private weak var settleField: NSTextField?
 
     private func applySettleDelay() {
         switcher.settleDelay = settleEnabled ? TimeInterval(settleDelayMs) / 1000 : nil
     }
 
+    /// 0~20초 범위, 10ms 단위로 맞춰 저장하고 슬라이더·입력칸을 서로 맞춘다
     private func setSettleDelay(_ ms: Int) {
-        UserDefaults.standard.set(ms, forKey: Self.settleDelayKey)
+        let clamped = min(max(Int((Double(ms) / 10).rounded()) * 10, 0), Self.sliderMaxMs)
+        UserDefaults.standard.set(clamped, forKey: Self.settleDelayKey)
         applySettleDelay()
-        applyReadyScript()
-        settleLabel?.stringValue = Self.settleLabelText(ms)
-    }
-
-    private static func settleLabelText(_ ms: Int) -> String {
-        L("Extra delay  %ldms", ms) + (Double(ms) > sliderMaxMs ? "  " + L("(custom)") : "")
+        settleSlider?.doubleValue = Double(clamped)
+        settleField?.stringValue = "\(clamped)"
     }
 
     @objc private func toggleSettle() {
@@ -196,46 +190,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyReadyScript()
     }
 
-    /// 메뉴 안에 들어가는 라벨 + 슬라이더 (0~10초, 100ms 단위). 드래그하는 동안 바로 반영된다.
+    /// 메뉴 안에 들어가는 라벨 + 입력칸 + 슬라이더 (0~20초, 10ms 단위).
+    /// 슬라이더는 드래그하는 동안 바로 반영되고, 입력칸은 클릭해서 숫자를 넣고 Enter로 반영한다.
+    /// (슬라이더 1px이 약 85ms라 10ms 단위는 입력칸으로 맞춘다)
     private func makeSettleSliderView() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 46))
-        let label = NSTextField(labelWithString: Self.settleLabelText(settleDelayMs))
-        label.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 50))
+        let current = min(settleDelayMs, Self.sliderMaxMs)
+
+        let label = NSTextField(labelWithString: L("Extra delay"))
+        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         label.textColor = .secondaryLabelColor
-        label.frame = NSRect(x: 34, y: 26, width: 230, height: 16)
-        let slider = NSSlider(value: min(Double(settleDelayMs), Self.sliderMaxMs), minValue: 0, maxValue: Self.sliderMaxMs,
-                              target: self, action: #selector(settleSliderChanged(_:)))
+        label.frame = NSRect(x: 34, y: 28, width: 120, height: 16)
+
+        let field = NSTextField(string: "\(current)")
+        field.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        field.alignment = .right
+        field.controlSize = .small
+        field.bezelStyle = .roundedBezel
+        field.frame = NSRect(x: 178, y: 26, width: 62, height: 20)
+        // Enter는 메뉴가 받으면 메뉴가 닫히므로 delegate에서 직접 처리한다 (control(_:textView:doCommandBy:))
+        field.delegate = self
+
+        let unit = NSTextField(labelWithString: "ms")
+        unit.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        unit.textColor = .secondaryLabelColor
+        unit.frame = NSRect(x: 244, y: 28, width: 24, height: 16)
+
+        let slider = MenuSlider(value: Double(current), minValue: 0, maxValue: Double(Self.sliderMaxMs),
+                                target: self, action: #selector(settleSliderChanged(_:)))
         slider.isContinuous = true
         slider.frame = NSRect(x: 30, y: 4, width: 236, height: 20)
-        view.addSubview(label)
-        view.addSubview(slider)
-        settleLabel = label
+
+        [label, field, unit, slider].forEach(view.addSubview)
+        settleSlider = slider
+        settleField = field
         return view
     }
 
     @objc private func settleSliderChanged(_ sender: NSSlider) {
-        setSettleDelay(Int((sender.doubleValue / 100).rounded()) * 100)
+        setSettleDelay(Int(sender.doubleValue))
     }
 
-    @objc private func inputSettleDelay() {
-        let alert = NSAlert()
-        alert.messageText = L("Extra Delay After Switching")
-        alert.informativeText = L("After the device confirms the new sample rate, wait this long before resuming playback. (0–%ld ms)", Self.inputMaxMs)
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        field.stringValue = "\(settleDelayMs)"
-        field.placeholderString = "ms"
-        alert.accessoryView = field
-        alert.addButton(withTitle: L("OK"))
-        alert.addButton(withTitle: L("Cancel"))
-        alert.window.initialFirstResponder = field
-        NSApp.activate(ignoringOtherApps: true)  // 메뉴바 전용 앱이라 창을 앞으로 가져와야 입력 가능
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard let ms = Int(field.stringValue.trimmingCharacters(in: .whitespaces)), (0...Self.inputMaxMs).contains(ms) else {
-            NSSound.beep()
-            return
-        }
-        setSettleDelay(ms)
+    /// Enter를 누르면 0~20000, 10ms 단위로 맞춰 바로 입력칸에 다시 보여 준다 (입력 중에는 건드리지 않아 커서가 유지된다).
+    /// true를 돌려줘 Enter가 메뉴까지 가지 않게 한다 (메뉴가 받으면 닫힌다).
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard control === settleField, selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+        let digits = textView.string.filter { ("0"..."9").contains($0) }
+        setSettleDelay(Int(digits.prefix(6)) ?? 0)
+        textView.string = settleField?.stringValue ?? ""
+        textView.selectAll(nil)
+        return true
     }
+
 
     // MARK: - 준비 확인 스크립트
 
@@ -319,5 +325,26 @@ private extension NSMenu {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         addItem(item)
+    }
+}
+
+/// 메뉴 안에서 쓰는 슬라이더. 기본 NSSlider는 드래그하다 메뉴 밖에서 버튼을 떼면 메뉴가 그 이벤트를 받아 닫히므로,
+/// 누른 순간부터 뗄 때까지의 마우스 이벤트를 직접 받아 처리한다.
+private final class MenuSlider: NSSlider {
+    override func mouseDown(with event: NSEvent) {
+        update(with: event)
+        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            update(with: next)
+            if next.type == .leftMouseUp { break }
+        }
+    }
+
+    private func update(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let knob = (cell as? NSSliderCell)?.knobThickness ?? 0
+        let usable = max(bounds.width - knob, 1)
+        let fraction = min(max((point.x - knob / 2) / usable, 0), 1)
+        doubleValue = minValue + fraction * (maxValue - minValue)
+        sendAction(action, to: target)
     }
 }

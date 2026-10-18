@@ -5,18 +5,12 @@
 "LosslessSwitcher is running. Both apps will fight over the sample rate" = "LosslessSwitcher가 실행 중입니다. 같이 쓰면 서로 샘플레이트를 바꿉니다";
 "Pause While Switching" = "전환 시 일시정지";
 "Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends." = "샘플레이트가 바뀔 때만 멈춥니다. 다음 곡의 샘플레이트를 미리 알면 지금 곡이 끝나기 직전에 멈춥니다.";
-"Set Delay Manually…" = "대기 시간 직접 입력…";
 "Launch at Login" = "로그인 시 실행";
 "Recent Activity" = "최근 기록";
 "None" = "없음";
 "Quit" = "종료";
-"Extra delay  %ldms" = "추가 대기  %ldms";
-"(custom)" = "(직접 입력값)";
 
 /* 알림창 */
-"Extra Delay After Switching" = "전환 후 추가 대기 시간";
-"After the device confirms the new sample rate, wait this long before resuming playback. (0–%ld ms)" = "장치가 새 샘플레이트를 확인한 뒤 이만큼 더 기다렸다가 재생을 재개합니다. (0–%ld ms)";
-"OK" = "확인";
 "Cancel" = "취소";
 "Couldn’t Change Launch at Login" = "로그인 시 실행 설정 실패";
 "The app may need to be in /Applications." = "앱이 /Applications에 있어야 할 수 있습니다.";
@@ -57,3 +51,4 @@
 "Use This Script" = "이 스크립트 사용";
 "Delay: decided by the ready script" = "대기: 준비 확인 스크립트가 결정";
 "Resumes as soon as the script exits. Even if it fails, playback resumes right away." = "스크립트가 끝나면 바로 재생합니다. 실패해도 따로 기다리지 않고 바로 재생합니다.";
+"Extra delay" = "추가 대기";
