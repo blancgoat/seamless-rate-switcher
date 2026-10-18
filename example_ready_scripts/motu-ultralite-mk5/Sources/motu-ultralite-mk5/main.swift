@@ -15,7 +15,7 @@ import Foundation
 //   motu-ultralite-mk5 [시리얼]          준비 신호(id 22)가 오면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
 //   motu-ultralite-mk5 watch [시리얼]    샘플레이트 변경 전후의 잠김·준비 신호 시점을 계속 출력
 //
-// 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5eff6f7a)에서 얻고,
+// 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5xxxxxxx)에서 얻고,
 // 그것도 없으면(터미널에서 직접 실행) 연결된 MOTU Gen 5 장치를 찾는다.
 // 종료 코드: 0 준비됨, 1 접속/프로토콜 오류, 2 장치 없음, 3 비밀번호가 켜져 있음, 4 시간 초과
 
@@ -55,7 +55,7 @@ if let i = args.firstIndex(of: "--timeout"), args.indices.contains(i + 1), let t
     args.removeSubrange(i...(i + 1))
 }
 
-/// "com_motu_driver_gen5_control_interface:ul5eff6f7a" → "UL5EFF6F7A"
+/// "com_motu_driver_gen5_control_interface:ul5xxxxxxx" → "UL5XXXXXXX"
 func serial(fromUID uid: String) -> String? {
     guard uid.hasPrefix("com_motu_driver_gen5"), let tail = uid.split(separator: ":").last else { return nil }
     return tail.uppercased()

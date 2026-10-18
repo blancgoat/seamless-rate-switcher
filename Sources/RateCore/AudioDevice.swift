@@ -21,7 +21,7 @@ public struct AudioDevice: Hashable {
         return name.takeRetainedValue() as String
     }
 
-    /// 재부팅·재연결에도 바뀌지 않는 장치 식별자 (예: "com_motu_driver_gen5_control_interface:ul5eff6f7a")
+    /// 재부팅·재연결에도 바뀌지 않는 장치 식별자 (예: "com_motu_driver_gen5_control_interface:ul5xxxxxxx")
     public var uid: String {
         var addr = Self.address(kAudioDevicePropertyDeviceUID)
         var uid: Unmanaged<CFString>?

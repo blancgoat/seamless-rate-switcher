@@ -6,7 +6,7 @@ import Foundation
 ///
 /// 스크립트에 넘기는 환경 변수:
 ///   SRS_SAMPLE_RATE  새 샘플레이트 (예: 96000)
-///   SRS_DEVICE_UID   Core Audio 장치 UID (예: com_motu_driver_gen5_control_interface:ul5eff6f7a)
+///   SRS_DEVICE_UID   Core Audio 장치 UID (예: com_motu_driver_gen5_control_interface:ul5xxxxxxx)
 ///   SRS_DEVICE_NAME  장치 이름
 public final class ReadyScript {
     public enum Outcome {
