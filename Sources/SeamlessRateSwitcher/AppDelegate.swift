@@ -1,4 +1,5 @@
 import AppKit
+import NoteGlyph
 import RateCore
 import ServiceManagement
 
@@ -12,15 +13,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let settleEnabledKey = "settleEnabled"
     /// 전환 시 일시정지 후 추가 대기(ms). 인터페이스마다 클럭을 다시 잡는 시간이 달라 사용자가 정한다
     private static let settleDelayKey = "settleDelayMs"
+    /// 클럭을 다시 잡는 데 2초 넘게 걸리는 인터페이스가 많아 넉넉하게 잡는다
+    private static let defaultSettleDelayMs = 3000
     private static let sliderMaxMs = 10000.0
     private static let inputMaxMs = 30000
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [Self.enabledKey: true, Self.settleEnabledKey: true, Self.settleDelayKey: 500])
+        Self.migrateDefaultsFromOldName()
+        UserDefaults.standard.register(defaults: [Self.enabledKey: true, Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
-            UserDefaults.standard.set(500, forKey: Self.settleDelayKey)
+            UserDefaults.standard.set(Self.defaultSettleDelayMs, forKey: Self.settleDelayKey)
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -54,12 +58,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateTitle() {
         guard let button = statusItem.button else { return }
         let rate = AudioDevice.defaultOutput?.nominalSampleRate
-        button.image = NSImage(systemSymbolName: switcher.isEnabled ? "waveform" : "waveform.slash",
-                               accessibilityDescription: "Like LosslessSwitcher")
+        button.image = NoteGlyph.menuBarImage(slashed: !switcher.isEnabled)
+        button.image?.accessibilityDescription = "Seamless Rate Switcher"
         button.imagePosition = .imageLeading
         button.title = rate.map { " " + Self.shortRate($0) } ?? ""
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
         button.appearsDisabled = !switcher.isRunning
+    }
+
+    /// 이름을 바꾸기 전(LikeLosslessSwitcher) 설정을 한 번만 옮겨온다. 번들 ID가 달라 설정 저장소가 다르다.
+    /// register(defaults:) 전에 불러야 "값 없음"을 구분할 수 있다.
+    private static func migrateDefaultsFromOldName() {
+        let standard = UserDefaults.standard
+        let migratedKey = "migratedFromLikeLosslessSwitcher"
+        guard !standard.bool(forKey: migratedKey) else { return }
+        standard.set(true, forKey: migratedKey)
+        guard let old = UserDefaults(suiteName: "dev.blancgoat.LikeLosslessSwitcher") else { return }
+        for key in [enabledKey, settleEnabledKey, settleDelayKey] where standard.object(forKey: key) == nil {
+            if let value = old.object(forKey: key) { standard.set(value, forKey: key) }
+        }
     }
 
     /// 44100 → "44.1k", 96000 → "96k"
