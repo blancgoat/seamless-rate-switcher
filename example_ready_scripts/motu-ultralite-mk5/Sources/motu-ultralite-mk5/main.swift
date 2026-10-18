@@ -1,6 +1,5 @@
-import CryptoKit
+import CoreAudio
 import Foundation
-import Security
 
 // Seamless Rate Switcher의 "준비 확인 스크립트": MOTU UltraLite mk5 (MOTU Gen 5 드라이버).
 //
@@ -9,13 +8,16 @@ import Security
 // 샘플레이트를 바꾸면 장치가 FPGA/PLL 잠김(id 15/16) 뒤 약 3초 후에 id 22를 잠깐 1로 올리는데,
 // 이 시점이 DAC 출력이 다시 열리는 시점으로 보인다 (CueMix 정의에 없는 속성, 실측으로 찾음).
 //
-// 사용:
-//   motu-ultralite-mk5 set-password [시리얼]   비밀번호를 입력받아 SHA-256 해시만 키체인에 저장하고 인증을 확인
-//   motu-ultralite-mk5 watch [시리얼]          샘플레이트 변경 전후의 잠김·준비 신호 시점을 계속 출력
-//   motu-ultralite-mk5 [시리얼]                준비 신호(id 22)가 오면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
+// CueMix 5의 비밀번호(원격 제어 비밀번호)가 꺼져 있을 때만 동작한다.
+// 켜져 있으면 프록시가 인증을 요구하므로 종료 코드 3으로 끝난다.
 //
-// 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5eff6f7a)에서 얻는다.
-// 종료 코드: 0 준비됨, 1 접속/프로토콜 오류, 2 시리얼·비밀번호 없음, 3 인증 실패, 4 시간 초과
+// 사용:
+//   motu-ultralite-mk5 [시리얼]          준비 신호(id 22)가 오면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
+//   motu-ultralite-mk5 watch [시리얼]    샘플레이트 변경 전후의 잠김·준비 신호 시점을 계속 출력
+//
+// 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5eff6f7a)에서 얻고,
+// 그것도 없으면(터미널에서 직접 실행) 연결된 MOTU Gen 5 장치를 찾는다.
+// 종료 코드: 0 준비됨, 1 접속/프로토콜 오류, 2 장치 없음, 3 비밀번호가 켜져 있음, 4 시간 초과
 
 enum Prop {
     static let sampleRate = 10
@@ -27,8 +29,6 @@ enum Prop {
     static let names = [sampleRate: "SampleRate", fpgaLocked: "FPGALocked", pllLocked: "PLLLocked",
                         measuredRate: "id17", clockValid: "id18", outputReady: "id22(ready)"]
 }
-
-let keychainService = "dev.blancgoat.SeamlessRateSwitcher.motu-ultralite-mk5"
 
 func fail(_ code: Int32, _ message: String) -> Never {
     FileHandle.standardError.write("motu-ultralite-mk5: \(message)\n".data(using: .utf8)!)
@@ -43,7 +43,7 @@ func info(_ message: String) {
 
 var args = Array(CommandLine.arguments.dropFirst())
 let command: String
-if let first = args.first, ["set-password", "watch"].contains(first) {
+if let first = args.first, first == "watch" {
     command = first
     args.removeFirst()
 } else {
@@ -56,88 +56,54 @@ if let i = args.firstIndex(of: "--timeout"), args.indices.contains(i + 1), let t
 }
 
 /// "com_motu_driver_gen5_control_interface:ul5eff6f7a" → "UL5EFF6F7A"
+func serial(fromUID uid: String) -> String? {
+    guard uid.hasPrefix("com_motu_driver_gen5"), let tail = uid.split(separator: ":").last else { return nil }
+    return tail.uppercased()
+}
+
+/// 연결된 Core Audio 장치 중 MOTU Gen 5 장치의 UID들
+func connectedMOTUSerials() -> [String] {
+    var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
+                                          mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr else { return [] }
+    var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+    guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else { return [] }
+    return ids.compactMap { id in
+        var uidAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var uid: Unmanaged<CFString>?
+        var uidSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, &uid) == noErr, let uid else { return nil }
+        return serial(fromUID: uid.takeRetainedValue() as String)
+    }
+}
+
+/// 시리얼: 인자 → 앱이 넘긴 SRS_DEVICE_UID → 연결된 MOTU 장치 (하나일 때) 순서로 찾는다
 let serial: String = {
     if let explicit = args.first { return explicit.uppercased() }
-    if let uid = ProcessInfo.processInfo.environment["SRS_DEVICE_UID"], uid.contains("motu"),
-       let tail = uid.split(separator: ":").last {
-        return tail.uppercased()
+    if let uid = ProcessInfo.processInfo.environment["SRS_DEVICE_UID"] {
+        guard let found = serial(fromUID: uid) else { fail(2, "MOTU Gen 5 장치가 아닙니다: \(uid)") }
+        return found
     }
-    fail(2, "시리얼을 알 수 없습니다. motu-ultralite-mk5 [시리얼] 또는 SRS_DEVICE_UID 환경 변수가 필요합니다.")
+    let connected = Array(Set(connectedMOTUSerials())).sorted()
+    switch connected.count {
+    case 1: return connected[0]
+    case 0: fail(2, "연결된 MOTU Gen 5 장치를 찾지 못했습니다.")
+    default: fail(2, "MOTU 장치가 여러 대입니다. 시리얼을 지정하세요: \(connected.joined(separator: ", "))")
+    }
 }()
 
-// MARK: - 키체인 (비밀번호 원문 대신 CueMix와 같은 SHA-256 16진수 해시만 저장)
-
-func storedHash() -> String? {
-    let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: keychainService,
-                                  kSecAttrAccount: serial, kSecReturnData: true]
-    var result: CFTypeRef?
-    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-    return String(data: data, encoding: .utf8)
-}
-
-func storeHash(_ hash: String) {
-    let base: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: keychainService, kSecAttrAccount: serial]
-    SecItemDelete(base as CFDictionary)
-    var add = base
-    add[kSecValueData] = Data(hash.utf8)
-    add[kSecAttrLabel] = "Seamless Rate Switcher – MOTU UltraLite mk5 \(serial)"
-    let status = SecItemAdd(add as CFDictionary, nil)
-    if status != errSecSuccess { fail(1, "키체인 저장 실패 (OSStatus \(status))") }
-}
-
-// MARK: - 프록시 프로토콜 (CueMix 5의 datastore.js / crypto.js / proxy.js와 같은 방식)
-
-/// SubjectPublicKeyInfo DER에서 PKCS#1 RSAPublicKey를 꺼낸다 (SecKey는 PKCS#1만 받는다).
-func pkcs1(fromSPKI der: [UInt8]) -> [UInt8]? {
-    var i = 0
-    func length() -> Int? {
-        guard i < der.count else { return nil }
-        var len = Int(der[i]); i += 1
-        if len & 0x80 != 0 {
-            let n = len & 0x7F
-            len = 0
-            for _ in 0..<n {
-                guard i < der.count else { return nil }
-                len = len << 8 | Int(der[i]); i += 1
-            }
-        }
-        return len
-    }
-    guard der.first == 0x30 else { return nil }
-    i = 1; _ = length()                                                      // SEQUENCE
-    guard i < der.count, der[i] == 0x30 else { return nil }
-    i += 1
-    guard let algorithm = length() else { return nil }
-    i += algorithm                                                           // AlgorithmIdentifier
-    guard i < der.count, der[i] == 0x03 else { return nil }                  // BIT STRING
-    i += 1
-    guard let bits = length(), i < der.count, der[i] == 0x00 else { return nil }
-    i += 1
-    guard i + bits - 1 <= der.count else { return nil }
-    return Array(der[i..<(i + bits - 1)])
-}
-
-func publicKey(fromPEM pem: String) -> SecKey? {
-    let base64 = pem.replacingOccurrences(of: "-----BEGIN PUBLIC KEY-----", with: "")
-        .replacingOccurrences(of: "-----END PUBLIC KEY-----", with: "")
-        .filter { !$0.isWhitespace && $0 != "\0" }
-    guard let der = Data(base64Encoded: base64), let rsa = pkcs1(fromSPKI: [UInt8](der)) else { return nil }
-    let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPublic]
-    return SecKeyCreateWithData(Data(rsa) as CFData, attributes as CFDictionary, nil)
-}
+// MARK: - 프록시 프로토콜 (CueMix 5의 datastore.js와 같은 메시지 형식)
 
 final class ProxyClient {
     var onProperty: ((Int, [UInt8]) -> Void)?
-    var onAuthenticated: (() -> Void)?
-    var passwordHash: () -> String?
+    var onConnected: (() -> Void)?
 
     private let task: URLSessionWebSocketTask
-    private var key: SecKey?
-    private var authAttempts = 0
-    private var authenticated = false
+    private var connected = false
 
-    init(serial: String, passwordHash: @escaping () -> String?) {
-        self.passwordHash = passwordHash
+    init(serial: String) {
         task = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:1281/\(serial)")!)
     }
 
@@ -157,52 +123,23 @@ final class ProxyClient {
         }
     }
 
+    /// 메시지 앞 2바이트가 속성 id (빅엔디언). 0xFFFE는 장치가 아닌 프록시 자체의 메시지.
     private func handle(_ bytes: [UInt8]) {
         guard bytes.count >= 2 else { return }
         let id = Int(bytes[0]) << 8 | Int(bytes[1])
         let body = Array(bytes.dropFirst(2))
         if id == 0xFFFE {
-            handleProxyMessage(body)
+            // 0x0000 = 인증 요청: CueMix 비밀번호가 켜져 있다
+            if body.count >= 2, body[0] == 0, body[1] == 0 {
+                fail(3, "CueMix 5의 비밀번호가 켜져 있어 동작할 수 없습니다. CueMix에서 비밀번호를 끄세요.")
+            }
             return
         }
-        if !authenticated {
-            authenticated = true
-            onAuthenticated?()
+        if !connected {
+            connected = true
+            onConnected?()
         }
         onProperty?(id, body)
-    }
-
-    private func handleProxyMessage(_ body: [UInt8]) {
-        guard body.count >= 2 else { return }
-        let message = Int(body[0]) << 8 | Int(body[1])
-        let rest = Array(body.dropFirst(2))
-        switch message {
-        case 6:  // kPublicKeySetup
-            key = publicKey(fromPEM: String(decoding: rest, as: UTF8.self))
-            if key == nil { fail(1, "프록시 공개키를 읽지 못했습니다") }
-        case 0:  // kAuthRequest (두 번째부터는 앞 인증이 틀렸다는 뜻)
-            authAttempts += 1
-            if authAttempts > 1 { fail(3, "인증 실패: 저장된 비밀번호가 맞지 않습니다. motu-ultralite-mk5 set-password로 다시 저장하세요.") }
-            guard let hash = passwordHash() else {
-                fail(2, "비밀번호가 없습니다. 먼저 터미널에서 motu-ultralite-mk5 set-password \(serial) 를 실행하세요.")
-            }
-            sendAuth(hash)
-        default:
-            break
-        }
-    }
-
-    /// CueMix: sha256(password)의 16진수 문자열을 RSA-OAEP(SHA-1)로 암호화해 [FFFE][0001][길이][암호문]
-    private func sendAuth(_ hash: String) {
-        guard let key else { fail(1, "공개키 없이 인증 요청을 받았습니다") }
-        var error: Unmanaged<CFError>?
-        guard let cipher = SecKeyCreateEncryptedData(key, .rsaEncryptionOAEPSHA1, Data(hash.utf8) as CFData, &error) as Data? else {
-            fail(1, "암호화 실패")
-        }
-        let message = [0xFF, 0xFE, 0x00, 0x01, UInt8(cipher.count >> 8), UInt8(cipher.count & 0xFF)] + [UInt8](cipher)
-        task.send(.data(Data(message))) { error in
-            if let error { fail(1, "인증 응답 전송 실패: \(error.localizedDescription)") }
-        }
     }
 }
 
@@ -216,24 +153,11 @@ func value(_ bytes: [UInt8]) -> Int {
 // MARK: - 명령
 
 switch command {
-case "set-password":
-    guard let raw = getpass("MOTU(CueMix) 비밀번호 – \(serial) (화면에 표시 안 됨): ") else { exit(1) }
-    let password = String(cString: raw)
-    memset(raw, 0, strlen(raw))
-    let hash = SHA256.hash(data: Data(password.utf8)).map { String(format: "%02x", $0) }.joined()
-    let client = ProxyClient(serial: serial) { hash }
-    client.onAuthenticated = {
-        storeHash(hash)
-        print("인증 성공. 키체인에 저장했습니다 (서비스: \(keychainService), 계정: \(serial)).")
-        exit(0)
-    }
-    client.start()
-
 case "watch":
     let clock: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss.SSS"; return f }()
     var changedAt: Date?
-    let client = ProxyClient(serial: serial, passwordHash: storedHash)
-    client.onAuthenticated = { print("연결됨. 샘플레이트를 바꾸면 시점을 출력합니다 (Ctrl-C로 종료).") }
+    let client = ProxyClient(serial: serial)
+    client.onConnected = { print("연결됨. 샘플레이트를 바꾸면 시점을 출력합니다 (Ctrl-C로 종료).") }
     client.onProperty = { id, bytes in
         guard let name = Prop.names[id] else { return }
         let now = Date()
@@ -246,7 +170,7 @@ case "watch":
 
 default:
     let started = Date()
-    let client = ProxyClient(serial: serial, passwordHash: storedHash)
+    let client = ProxyClient(serial: serial)
     client.onProperty = { id, bytes in
         guard id == Prop.outputReady, value(bytes) == 1 else { return }
         info(String(format: "준비 신호 수신 (%.2fs)", Date().timeIntervalSince(started)))
