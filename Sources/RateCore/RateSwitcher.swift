@@ -43,7 +43,15 @@ public final class RateSwitcher {
 
     private let tracker = MusicLogTracker()
     private var switchGeneration = 0
-    private var heldPause: MusicScripting.PauseState?
+    private var heldPause: MusicScripting.PauseState? {
+        didSet {
+            guard (oldValue == nil) != (heldPause == nil) else { return }
+            onStatusChange?()
+        }
+    }
+
+    /// 샘플레이트를 바꾸느라 앱이 Music을 일시정지해 둔 동안 true (메뉴바에 쉼표 표시용)
+    public var isHoldingPlayback: Bool { heldPause != nil }
     /// 일시정지 → rate 변경 → 대기 → 재개 흐름이 진행 중
     private var switchInFlight = false
     private var rateConfirmed: (() -> Void)?

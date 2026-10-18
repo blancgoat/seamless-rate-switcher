@@ -66,8 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     private func updateTitle() {
         guard let button = statusItem.button else { return }
         let rate = AudioDevice.defaultOutput?.nominalSampleRate
-        button.image = NoteGlyph.menuBarImage
-        button.image?.accessibilityDescription = "Seamless Rate Switcher"
+        // 앱이 Music을 일시정지해 둔 동안은 쉼표로 바꿔서, 멈춘 게 정상 동작임을 알린다
+        setIcon(switcher.isHoldingPlayback ? .rest : .note)
+        let holdingNote = L("Paused while the audio interface switches sample rate. Playback resumes automatically.")
+        // 애니메이션 중에는 이미지가 프레임마다 바뀌므로 설명은 버튼에 붙인다
+        button.setAccessibilityLabel(switcher.isHoldingPlayback ? holdingNote : "Seamless Rate Switcher")
+        button.toolTip = switcher.isHoldingPlayback ? holdingNote : nil
         button.imagePosition = .imageLeading
         button.title = rate.map { " " + Self.shortRate($0) } ?? ""
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
@@ -85,6 +89,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         for key in [settleEnabledKey, settleDelayKey] where standard.object(forKey: key) == nil {
             if let value = old.object(forKey: key) { standard.set(value, forKey: key) }
         }
+    }
+
+    // MARK: - 아이콘 전환 애니메이션
+
+    private var shownSymbol: NoteGlyph.Symbol?
+    private var iconAnimation: Timer?
+
+    /// 기호가 바뀌면 0.45초 동안 스프링처럼 튕기며 바꾼다 (동작 줄이기를 켠 경우는 바로 바꾼다)
+    private func setIcon(_ symbol: NoteGlyph.Symbol) {
+        guard let button = statusItem.button, symbol != shownSymbol else { return }
+        let previous = shownSymbol
+        shownSymbol = symbol
+        iconAnimation?.invalidate()
+        guard let previous, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            button.image = NoteGlyph.menuBarImage(symbol)
+            return
+        }
+        let duration: TimeInterval = 0.45
+        let start = Date()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            let progress = min(Date().timeIntervalSince(start) / duration, 1)
+            button.image = NoteGlyph.menuBarTransitionImage(from: previous, to: symbol, progress: progress)
+            if progress >= 1 {
+                timer.invalidate()
+                self?.iconAnimation = nil
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)  // 메뉴가 열려 있어도 애니메이션이 돌게
+        iconAnimation = timer
     }
 
     /// 44100 → "44.1k", 96000 → "96k"
