@@ -56,11 +56,11 @@ public final class RateSwitcher {
         tracker.onEvent = { [weak self] event in
             switch event {
             case let .formatLearned(player, item, format):
-                self?.onMessage?(.info("포맷 기록  P/\(player) \(item) = \(format)"))
+                self?.onMessage?(.info("Format     P/\(player) \(item) = \(format)"))
             case let .currentItemChanged(player, from, to):
-                self?.onMessage?(.info("곡 전환    P/\(player) \(from ?? "-") → \(to ?? "-")"))
+                self?.onMessage?(.info("Track      P/\(player) \(from ?? "-") → \(to ?? "-")"))
             case let .waitingForFormat(player, item):
-                self?.onMessage?(.info("포맷 대기  P/\(player) \(item)"))
+                self?.onMessage?(.info("Waiting    P/\(player) \(item)"))
             }
         }
     }
@@ -103,15 +103,15 @@ public final class RateSwitcher {
             return
         }
         guard isEnabled else {
-            onMessage?(.info("자동 전환 꺼짐, rate \(Int(rate)) 적용 안 함  (\(reason))"))
+            onMessage?(.info("Auto switch off, not applying \(Int(rate))  (\(reason))"))
             return
         }
         guard let device = AudioDevice.defaultOutput else {
-            onMessage?(.warning("기본 출력 장치 없음"))
+            onMessage?(.warning("No default output device"))
             return
         }
         if device.nominalSampleRate == rate {
-            onMessage?(.action("= rate \(Int(rate)) 유지  (\(device.name), \(reason))"))
+            onMessage?(.action("= rate \(Int(rate)) unchanged  (\(device.name), \(reason))"))
             // 이전 전환을 기다리는 도중 원래 rate로 돌아온 경우, 붙잡아 둔 일시정지를 풀어 준다
             if heldPause != nil {
                 switchGeneration += 1
@@ -120,7 +120,7 @@ public final class RateSwitcher {
             return
         }
         guard device.supports(rate) else {
-            onMessage?(.warning("\(device.name)는 \(Int(rate))을 지원하지 않음, 건너뜀"))
+            onMessage?(.warning("\(device.name) doesn’t support \(Int(rate)), skipped"))
             return
         }
         if let settleDelay {
@@ -139,7 +139,7 @@ public final class RateSwitcher {
             return true
         }
         lastRateWeSet = nil
-        onMessage?(.warning("rate 변경 실패 OSStatus=\(status)"))
+        onMessage?(.warning("Failed to set sample rate, OSStatus=\(status)"))
         return false
     }
 
@@ -159,8 +159,8 @@ public final class RateSwitcher {
                 rateConfirmed = nil
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 onMessage?(confirmed
-                    ? .info("장치 확인 \(ms)ms, \(Int(settleDelay * 1000))ms 대기 후 재개")
-                    : .warning("장치 확인 알림 없음 (\(ms)ms), \(Int(settleDelay * 1000))ms 대기 후 재개"))
+                    ? .info("Device confirmed in \(ms)ms, resuming after \(Int(settleDelay * 1000))ms")
+                    : .warning("No confirmation from device (\(ms)ms), resuming after \(Int(settleDelay * 1000))ms"))
                 DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) { self.resumeHeld(generation: generation) }
             }
             rateConfirmed = { finish(true) }
@@ -190,18 +190,18 @@ public final class RateSwitcher {
         guard generation == switchGeneration, let state = heldPause else { return }
         heldPause = nil
         let rewind = state.position < rewindThreshold
-        onMessage?(.info(rewind ? "재생 재개 (처음부터)" : "재생 재개"))
+        onMessage?(.info(rewind ? "Resumed (from the beginning)" : "Resumed"))
         DispatchQueue.global().async { MusicScripting.resume(state, rewind: rewind) }
     }
 
     private func watchDefaultOutput() {
         if let device = AudioDevice.defaultOutput {
-            onMessage?(.info("장치: \(device.name) \(Int(device.nominalSampleRate)) Hz\(dryRun ? "  [dry-run]" : "")"))
+            onMessage?(.info("Device: \(device.name) \(Int(device.nominalSampleRate)) Hz\(dryRun ? "  [dry-run]" : "")"))
             watch(device)
         }
         AudioDevice.onDefaultOutputChange { [weak self] in
             guard let self, let device = AudioDevice.defaultOutput else { return }
-            onMessage?(.info("기본 출력 장치 변경: \(device.name) \(Int(device.nominalSampleRate)) Hz"))
+            onMessage?(.info("Default output changed: \(device.name) \(Int(device.nominalSampleRate)) Hz"))
             watch(device)
             onStatusChange?()
         }
@@ -216,7 +216,7 @@ public final class RateSwitcher {
                 lastRateWeSet = nil
                 rateConfirmed?()
             } else {
-                onMessage?(.warning("외부에서 rate 변경: \(Int(rate))  (\(device.name))"))
+                onMessage?(.warning("Sample rate changed externally: \(Int(rate))  (\(device.name))"))
             }
             onStatusChange?()
         }
@@ -259,7 +259,7 @@ public final class RateSwitcher {
     private func applyIfLocalFile(_ track: MusicScripting.CurrentTrack) {
         guard track.isLocalFile, track.sampleRate > 0 else { return }
         let file = (track.localPath! as NSString).lastPathComponent
-        setRate(track.sampleRate, reason: "로컬 파일 \(file)")
+        setRate(track.sampleRate, reason: "local file \(file)")
     }
 
     // MARK: - 스트리밍 곡 (log stream)
@@ -292,7 +292,7 @@ public final class RateSwitcher {
             DispatchQueue.main.async {
                 guard let self, self.logProcess === process else { return }  // stop()으로 끈 경우는 조용히
                 self.logProcess = nil
-                self.onMessage?(.warning("log stream 종료됨"))
+                self.onMessage?(.warning("log stream ended"))
                 self.onStatusChange?()
             }
         }

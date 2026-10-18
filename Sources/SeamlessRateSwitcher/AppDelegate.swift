@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try switcher.start()
         } catch {
-            history.append((Date(), .warning("log stream 실행 실패: \(error.localizedDescription)")))
+            history.append((Date(), .warning("Failed to start log stream: \(error.localizedDescription)")))
         }
         updateTitle()
     }
@@ -93,45 +93,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let device = AudioDevice.defaultOutput {
             menu.addItem(disabled: "\(device.name) · \(Self.shortRate(device.nominalSampleRate))Hz")
         } else {
-            menu.addItem(disabled: "출력 장치 없음")
+            menu.addItem(disabled: "No output device")
         }
         if let target = switcher.target {
-            menu.addItem(disabled: "마지막 곡: \(Self.shortRate(target.sampleRate))Hz · \(target.reason)")
+            menu.addItem(disabled: "Last track: \(Self.shortRate(target.sampleRate))Hz · \(target.reason)")
         }
         if !switcher.isRunning {
-            menu.addItem(disabled: "⚠︎ Music 로그 수신 중지됨 (앱을 다시 실행하세요)")
+            menu.addItem(disabled: "⚠︎ Stopped reading Music logs (please relaunch the app)")
         }
         if isLosslessSwitcherRunning {
-            menu.addItem(disabled: "⚠︎ LosslessSwitcher가 실행 중이에요. 같이 쓰면 서로 rate를 바꿉니다")
+            menu.addItem(disabled: "⚠︎ LosslessSwitcher is running. Both apps will fight over the sample rate")
         }
 
         menu.addItem(.separator())
 
-        let toggle = NSMenuItem(title: "자동 전환", action: #selector(toggleEnabled), keyEquivalent: "")
+        let toggle = NSMenuItem(title: "Auto Switch", action: #selector(toggleEnabled), keyEquivalent: "")
         toggle.target = self
         toggle.state = switcher.isEnabled ? .on : .off
         menu.addItem(toggle)
 
-        let settle = NSMenuItem(title: "전환 시 일시정지", action: #selector(toggleSettle), keyEquivalent: "")
+        let settle = NSMenuItem(title: "Pause While Switching", action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
-        settle.toolTip = "rate가 바뀔 때만 멈춥니다. 곡 시작 3초 안이면 처음부터 다시 재생합니다."
+        settle.toolTip = "Pauses only when the sample rate changes. Restarts the track from the beginning if it was within the first 3 seconds."
         menu.addItem(settle)
         if settleEnabled {
             let sliderItem = NSMenuItem()
             sliderItem.view = makeSettleSliderView()
             menu.addItem(sliderItem)
-            let input = NSMenuItem(title: "    대기 시간 직접 입력…", action: #selector(inputSettleDelay), keyEquivalent: "")
+            let input = NSMenuItem(title: "    Set Delay Manually…", action: #selector(inputSettleDelay), keyEquivalent: "")
             input.target = self
             menu.addItem(input)
         }
 
-        let login = NSMenuItem(title: "로그인 시 실행", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let historyItem = NSMenuItem(title: "최근 기록", action: nil, keyEquivalent: "")
+        let historyItem = NSMenuItem(title: "Recent Activity", action: nil, keyEquivalent: "")
         let historyMenu = NSMenu()
         let clock = DateFormatter()
         clock.dateFormat = "HH:mm:ss"
@@ -144,12 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             historyMenu.addItem(disabled: "\(clock.string(from: date))  \(text)")
         }
-        if history.isEmpty { historyMenu.addItem(disabled: "없음") }
+        if history.isEmpty { historyMenu.addItem(disabled: "None") }
         historyItem.submenu = historyMenu
         menu.addItem(historyItem)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
     private var isLosslessSwitcherRunning: Bool {
@@ -181,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private static func settleLabelText(_ ms: Int) -> String {
-        "추가 대기  \(ms)ms" + (Double(ms) > sliderMaxMs ? "  (직접 입력값)" : "")
+        "Extra delay  \(ms)ms" + (Double(ms) > sliderMaxMs ? "  (custom)" : "")
     }
 
     @objc private func toggleSettle() {
@@ -212,14 +212,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func inputSettleDelay() {
         let alert = NSAlert()
-        alert.messageText = "전환 후 추가 대기 시간"
-        alert.informativeText = "rate를 바꾼 뒤 장치가 변경을 확인하고 나서 이만큼 더 기다렸다가 재생합니다. (0~\(Self.inputMaxMs)ms)"
+        alert.messageText = "Extra Delay After Switching"
+        alert.informativeText = "After the device confirms the new sample rate, wait this long before resuming playback. (0–\(Self.inputMaxMs) ms)"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         field.stringValue = "\(settleDelayMs)"
         field.placeholderString = "ms"
         alert.accessoryView = field
-        alert.addButton(withTitle: "확인")
-        alert.addButton(withTitle: "취소")
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
         NSApp.activate(ignoringOtherApps: true)  // 메뉴바 전용 앱이라 창을 앞으로 가져와야 입력 가능
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -240,8 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "로그인 시 실행 설정 실패"
-            alert.informativeText = "\(error.localizedDescription)\n앱이 /Applications에 있어야 할 수 있어요."
+            alert.messageText = "Couldn’t Change Launch at Login"
+            alert.informativeText = "\(error.localizedDescription)\nThe app may need to be in /Applications."
             alert.runModal()
         }
     }

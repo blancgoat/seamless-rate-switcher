@@ -5,7 +5,7 @@ import NoteGlyph
 // 터미널 앱처럼 짙은 회색→검정 바탕, 가운데 흰 음표, 오른쪽 아래에 작게 "44.1k".
 
 guard CommandLine.arguments.count == 2 else {
-    print("사용: iconmaker <출력.iconset>")
+    print("usage: iconmaker <output.iconset>")
     exit(1)
 }
 let outDir = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -102,4 +102,4 @@ for base in [16, 32, 128, 256, 512] {
         try rep.representation(using: .png, properties: [:])!.write(to: outDir.appendingPathComponent(name))
     }
 }
-print("생성됨: \(outDir.path)")
+print("created: \(outDir.path)")

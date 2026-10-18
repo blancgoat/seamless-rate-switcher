@@ -12,7 +12,7 @@ BUILD=$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)
 
 swift build -c release --build-system native --package-path "$ROOT" --product "$NAME" 2>&1 | grep -v "deprecated" || true
 BIN="$ROOT/.build/release/$NAME"
-[[ -x "$BIN" ]] || { echo "빌드 실패"; exit 1; }
+[[ -x "$BIN" ]] || { echo "build failed"; exit 1; }
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -40,14 +40,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$BUILD</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSAppleEventsUsageDescription</key><string>로컬 파일 곡의 샘플레이트를 Music 앱에서 읽기 위해 필요합니다.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Seamless Rate Switcher reads the sample rate of local files from the Music app and pauses/resumes playback while switching rates.</string>
 </dict>
 </plist>
 PLIST
 
 # ad-hoc 서명 (로컬 실행용)
 codesign --force --sign - "$APP"
-echo "생성됨: $APP (v$VERSION build $BUILD)"
+echo "created: $APP (v$VERSION build $BUILD)"
 
 if [[ "${1:-}" == "--install" ]]; then
     # 이름을 바꾸기 전 버전(LikeLosslessSwitcher)도 같이 정리
@@ -58,5 +58,5 @@ if [[ "${1:-}" == "--install" ]]; then
     cp -R "$APP" /Applications/
     touch "/Applications/$DISPLAY_NAME.app"  # Finder 아이콘 캐시 갱신
     open "/Applications/$DISPLAY_NAME.app"
-    echo "설치 후 실행: /Applications/$DISPLAY_NAME.app"
+    echo "installed and launched: /Applications/$DISPLAY_NAME.app"
 fi

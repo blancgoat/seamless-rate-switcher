@@ -38,7 +38,7 @@ switcher.onMessage = { message in
 
 if let replayPath {
     guard let text = try? String(contentsOfFile: replayPath, encoding: .utf8) else {
-        FileHandle.standardError.write("파일을 읽을 수 없음: \(replayPath)\n".data(using: .utf8)!)
+        FileHandle.standardError.write("Can’t read file: \(replayPath)\n".data(using: .utf8)!)
         exit(1)
     }
     for line in text.split(separator: "\n") {
@@ -56,7 +56,7 @@ if let replayPath {
 do {
     try switcher.start()
 } catch {
-    print("log stream 실행 실패: \(error)")
+    print("Failed to start log stream: \(error)")
     exit(1)
 }
 
