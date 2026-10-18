@@ -3,7 +3,6 @@
 "Last track: %@Hz · %@" = "마지막 곡: %1$@Hz · %2$@";
 "Stopped reading Music logs (please relaunch the app)" = "Music 로그 수신이 멈췄습니다 (앱을 다시 실행하세요)";
 "LosslessSwitcher is running. Both apps will fight over the sample rate" = "LosslessSwitcher가 실행 중입니다. 같이 쓰면 서로 샘플레이트를 바꿉니다";
-"Auto Switch" = "자동 전환";
 "Pause While Switching" = "전환 시 일시정지";
 "Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends." = "샘플레이트가 바뀔 때만 멈춥니다. 다음 곡의 샘플레이트를 미리 알면 지금 곡이 끝나기 직전에 멈춥니다.";
 "Set Delay Manually…" = "대기 시간 직접 입력…";
@@ -27,7 +26,6 @@
 "Format     P/%@ %@ = %@" = "포맷 기록  P/%1$@ %2$@ = %3$@";
 "Track      P/%@ %@ → %@" = "곡 전환    P/%1$@ %2$@ → %3$@";
 "Waiting    P/%@ %@" = "포맷 대기  P/%1$@ %2$@";
-"Auto switch off, not applying %ld  (%@)" = "자동 전환 꺼짐, %1$ld 적용 안 함  (%2$@)";
 "No default output device" = "기본 출력 장치 없음";
 "= rate %ld unchanged  (%@, %@)" = "= rate %1$ld 유지  (%2$@, %3$@)";
 "%@ doesn’t support %ld, skipped" = "%1$@는 %2$ld을 지원하지 않아 건너뜀";

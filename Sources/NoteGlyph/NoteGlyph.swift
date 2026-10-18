@@ -36,23 +36,11 @@ public enum NoteGlyph {
         return paths
     }
 
-    /// 메뉴바용 템플릿 이미지. 자동 전환을 끄면 사선.
-    public static func menuBarImage(slashed: Bool) -> NSImage {
+    /// 메뉴바용 템플릿 이미지. 다크 모드/강조 상태에 자동으로 맞춰진다.
+    public static var menuBarImage: NSImage {
         let image = NSImage(size: NSSize(width: designSize, height: designSize), flipped: false) { rect in
             NSColor.black.set()
             shapes(in: rect).forEach { $0.fill() }
-            guard slashed else { return true }
-            let slash = NSBezierPath()
-            slash.move(to: NSPoint(x: 2.5, y: 2.5))
-            slash.line(to: NSPoint(x: 15.5, y: 15.5))
-            slash.lineCapStyle = .round
-            // 사선 주변을 먼저 지워서 음표와 겹쳐도 사선이 또렷하게 보이게
-            NSGraphicsContext.current?.compositingOperation = .clear
-            slash.lineWidth = 4
-            slash.stroke()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-            slash.lineWidth = 1.6
-            slash.stroke()
             return true
         }
         image.isTemplate = true

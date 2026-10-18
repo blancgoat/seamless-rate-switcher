@@ -11,7 +11,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let historyLimit = 30
 
     private static let log = Logger(subsystem: "dev.blancgoat.SeamlessRateSwitcher", category: "switch")
-    private static let enabledKey = "autoSwitchEnabled"
     private static let settleEnabledKey = "settleEnabled"
     /// 전환 시 일시정지 후 추가 대기(ms). 인터페이스마다 클럭을 다시 잡는 시간이 달라 사용자가 정한다
     private static let settleDelayKey = "settleDelayMs"
@@ -22,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateDefaultsFromOldName()
-        UserDefaults.standard.register(defaults: [Self.enabledKey: true, Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs])
+        UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
@@ -34,7 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
 
-        switcher.isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         applySettleDelay()
         switcher.onMessage = { [weak self] message in
             guard let self else { return }
@@ -66,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateTitle() {
         guard let button = statusItem.button else { return }
         let rate = AudioDevice.defaultOutput?.nominalSampleRate
-        button.image = NoteGlyph.menuBarImage(slashed: !switcher.isEnabled)
+        button.image = NoteGlyph.menuBarImage
         button.image?.accessibilityDescription = "Seamless Rate Switcher"
         button.imagePosition = .imageLeading
         button.title = rate.map { " " + Self.shortRate($0) } ?? ""
@@ -82,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !standard.bool(forKey: migratedKey) else { return }
         standard.set(true, forKey: migratedKey)
         guard let old = UserDefaults(suiteName: "dev.blancgoat.LikeLosslessSwitcher") else { return }
-        for key in [enabledKey, settleEnabledKey, settleDelayKey] where standard.object(forKey: key) == nil {
+        for key in [settleEnabledKey, settleDelayKey] where standard.object(forKey: key) == nil {
             if let value = old.object(forKey: key) { standard.set(value, forKey: key) }
         }
     }
@@ -114,11 +112,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-
-        let toggle = NSMenuItem(title: L("Auto Switch"), action: #selector(toggleEnabled), keyEquivalent: "")
-        toggle.target = self
-        toggle.state = switcher.isEnabled ? .on : .off
-        menu.addItem(toggle)
 
         let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
@@ -166,11 +159,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func toggleEnabled() {
-        switcher.isEnabled.toggle()
-        UserDefaults.standard.set(switcher.isEnabled, forKey: Self.enabledKey)
-        updateTitle()
-    }
 
     // MARK: - 전환 시 일시정지
 
