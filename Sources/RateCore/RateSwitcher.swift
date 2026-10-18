@@ -34,8 +34,13 @@ public final class RateSwitcher {
     /// 장치가 rate 변경을 확인한 뒤 실행할 준비 확인 스크립트 (ReadyScript 참고).
     /// 끝나면 바로 재생한다. 스크립트가 있으면 settleDelay는 쓰지 않고, 실패하거나
     /// readyScriptTimeout을 넘겨도 따로 기다리지 않는다 (준비 판단은 전적으로 스크립트 몫).
-    public var readyScript: URL?
+    public var readyScript: URL? {
+        didSet { if readyScript != oldValue { lastReadyScriptFailure = nil } }
+    }
     public var readyScriptTimeout: TimeInterval = 20
+
+    /// 마지막 준비 확인 스크립트 실행이 실패했으면 그 이유 (성공하거나 스크립트를 바꾸면 nil). 메뉴 표시용.
+    public private(set) var lastReadyScriptFailure: String?
     public var readyScriptFallbackDelay: TimeInterval = 0
 
     /// 곡이 끝나기 이만큼 전에 미리 멈춘다. 새 곡 소리가 잘못된 rate로 한 번도 나가지 않게 하려는 것.
@@ -237,12 +242,19 @@ public final class RateSwitcher {
             let elapsed = Date().timeIntervalSince(started)
             switch outcome {
             case .ready:
+                lastReadyScriptFailure = nil
                 onMessage?(.info(L("Ready script finished in %ldms", Int(elapsed * 1000))))
                 resumeHeld(generation: generation)
             case .failed(let reason):
+                lastReadyScriptFailure = reason
                 let remaining = max(fallbackDelay - elapsed, 0)
-                onMessage?(.warning(L("Ready script failed (%@), resuming after %ldms", reason, Int(remaining * 1000))))
-                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { self.resumeHeld(generation: generation) }
+                if remaining == 0 {
+                    onMessage?(.warning(L("Ready script failed (%@), resuming now", reason)))
+                    resumeHeld(generation: generation)
+                } else {
+                    onMessage?(.warning(L("Ready script failed (%@), resuming after %ldms", reason, Int(remaining * 1000))))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { self.resumeHeld(generation: generation) }
+                }
             }
         }
     }

@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
                 // 스크립트가 준비 시점을 정하므로 고정 대기 시간은 숨긴다
                 menu.addItem(disabled: "    " + L("Delay: decided by the ready script"))
             }
-            menu.addItem(makeReadyScriptItem())
+            makeReadyScriptItems().forEach(menu.addItem)
         }
 
         let login = NSMenuItem(title: L("Launch at Login"), action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
@@ -294,13 +294,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     }
 
     /// 스크립트가 없으면 누르면 바로 선택 창이 뜨는 항목, 있으면 "지우기"만 있는 하위 메뉴.
-    /// 다른 스크립트로 바꾸려면 지운 뒤 다시 선택한다.
-    private func makeReadyScriptItem() -> NSMenuItem {
+    /// 다른 스크립트로 바꾸려면 지운 뒤 다시 선택한다. 마지막 실행이 실패했으면 그 아래에 이유를 보여 준다.
+    private func makeReadyScriptItems() -> [NSMenuItem] {
         guard let url = readyScriptURL else {
             let choose = NSMenuItem(title: "    " + L("Choose Ready Script…"), action: #selector(chooseReadyScript), keyEquivalent: "")
             choose.target = self
             choose.toolTip = L("Resumes as soon as the script exits. Even if it fails, playback resumes right away.")
-            return choose
+            return [choose]
         }
         let item = NSMenuItem(title: "    " + L("Ready Script: %@", url.lastPathComponent), action: nil, keyEquivalent: "")
         item.toolTip = url.path
@@ -309,7 +309,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         remove.target = self
         submenu.addItem(remove)
         item.submenu = submenu
-        return item
+
+        guard let failure = switcher.lastReadyScriptFailure else { return [item] }
+        let short = failure.count > 60 ? String(failure.prefix(60)) + "…" : failure
+        let warning = NSMenuItem(title: "    ⚠︎ " + L("Last run failed: %@", short), action: nil, keyEquivalent: "")
+        warning.isEnabled = false
+        warning.toolTip = failure
+        return [item, warning]
     }
 
     @objc private func chooseReadyScript() {

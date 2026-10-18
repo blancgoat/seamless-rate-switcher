@@ -53,3 +53,5 @@
 "Extra delay" = "추가 대기";
 "Choose Ready Script…" = "준비 확인 스크립트 선택…";
 "Paused while the audio interface switches sample rate. Playback resumes automatically." = "오디오 인터페이스가 샘플레이트를 바꾸는 동안 일시정지 중입니다. 자동으로 다시 재생됩니다.";
+"Ready script failed (%@), resuming now" = "준비 확인 스크립트 실패 (%@), 바로 재생";
+"Last run failed: %@" = "마지막 실행 실패: %@";
