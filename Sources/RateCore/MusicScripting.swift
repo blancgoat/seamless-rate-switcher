@@ -9,7 +9,11 @@ public enum MusicScripting {
         public let sampleRate: Double
         public let localPath: String?
 
-        public var isLocalFile: Bool { trackClass == "file track" && localPath != nil }
+        /// 보관함의 로컬 파일. 다운로드한 Apple Music 곡(.movpkg)도 file track이지만 스트리밍과 같은 경로라 제외
+        public var isLocalFile: Bool {
+            guard trackClass == "file track", let localPath else { return false }
+            return !localPath.hasSuffix(".movpkg") && !localPath.hasSuffix(".movpkg/")
+        }
     }
 
     private static let script = """
@@ -28,61 +32,103 @@ public enum MusicScripting {
 
     /// 현재 곡 정보. 실패하면 nil (Music이 꺼져 있거나 자동화 권한 거부).
     public static func currentTrack() -> CurrentTrack? {
-        guard let text = run(script) else { return nil }
+        guard let text = run(script, cache: true) else { return nil }
         let parts = text.components(separatedBy: "\t")
         guard parts.count == 4 else { return nil }
         return CurrentTrack(persistentID: parts[0], trackClass: parts[1],
                             sampleRate: Double(parts[2]) ?? 0, localPath: parts[3].isEmpty ? nil : parts[3])
     }
 
-    // MARK: - rate 전환 중 일시정지
+    // MARK: - rate 전환 중 일시정지 (Apple Event 직접 전송, 수 ms)
+
+    /// 재개할 때 할 일. 재생 위치로 추측하지 않고 왜 멈췄는지로 정한다.
+    public enum ResumeAction {
+        case resume   // 멈춘 자리에서 (곡 중간에 자동 전환을 다시 켰을 때 등)
+        case rewind   // 곡 처음부터 (곡이 바뀐 직후 멈췄을 때: 감지 지연 동안 잘못 나간 앞부분 복구)
+        case advance  // 다음 곡으로 (곡 끝 직전에 멈췄을 때)
+    }
 
     public struct PauseState {
-        public let persistentID: String
-        /// 일시정지한 시점의 곡 위치(초)
-        public let position: Double
+        public let persistentID: String?
+        public let action: ResumeAction
     }
 
-    /// 재생 중이면 일시정지하고 그 상태를 돌려준다. 재생 중이 아니면 nil.
-    public static func pauseIfPlaying() -> PauseState? {
-        let text = run("""
-        tell application "Music"
-            if player state is not playing then return ""
-            pause
-            return (persistent ID of current track) & tab & (player position as text)
-        end tell
-        """)
-        guard let parts = text?.components(separatedBy: "\t"), parts.count == 2 else { return nil }
-        // 로케일에 따라 소수점이 쉼표로 올 수 있다
-        let position = Double(parts[1].replacingOccurrences(of: ",", with: ".")) ?? 0
-        return PauseState(persistentID: parts[0], position: position)
+    /// 바로 일시정지를 보내고(응답 기다리지 않음), 실제로 멈출 때까지 확인한 뒤 멈춘 곡의 ID를 읽는다.
+    /// 곡이 막 재생을 시작하려는 순간에 보낸 일시정지는 Music이 무시하고 재생을 이어 가는 경우가 있어서
+    /// 멈춘 게 확인될 때까지 다시 보낸다 (최대 약 1초). 재생 중인지는 호출하는 쪽이 playerInfo 알림으로 판단한다.
+    public static func pauseNow(then action: ResumeAction) -> (state: PauseState, attempts: Int, paused: Bool) {
+        MusicEvents.pauseWithoutWaiting()
+        var attempts = 1
+        var paused = false
+        for _ in 0..<20 {
+            if MusicEvents.playerState == .paused {
+                paused = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+            MusicEvents.pauseWithoutWaiting()
+            attempts += 1
+        }
+        return (PauseState(persistentID: MusicEvents.currentTrackPersistentID, action: action), attempts, paused)
     }
 
-    /// 일시정지했던 곡이 그대로면 (필요하면 처음으로 되돌려서) 다시 재생한다.
-    public static func resume(_ state: PauseState, rewind: Bool) {
-        run("""
-        tell application "Music"
-            if persistent ID of current track is "\(state.persistentID)" then
-                \(rewind ? "set player position to 0" : "")
-                play
-            end if
-        end tell
+    /// 다시 재생한다. 멈췄던 곡이 그대로면 action에 따라 다음 곡으로 넘기거나 처음으로 되돌린다.
+    /// 진단용으로 무엇을 했는지 돌려준다.
+    @discardableResult
+    public static func resume(_ state: PauseState) -> String {
+        let currentID = MusicEvents.currentTrackPersistentID
+        let position = MusicEvents.playerPosition
+        var did = "play"
+        if let id = state.persistentID, currentID == id {
+            switch state.action {
+            case .advance: MusicEvents.nextTrack(); did = "next+play"
+            case .rewind: MusicEvents.setPlayerPosition(0); did = "rewind+play"
+            case .resume: break
+            }
+        }
+        MusicEvents.play()
+        return "paused id=\(state.persistentID ?? "nil") now id=\(currentID ?? "nil") pos=\(position.map { String(format: "%.2f", $0) } ?? "nil") → \(did)"
+    }
+
+    /// Music과의 Apple Event 연결을 미리 열어 둔다. 첫 호출은 100ms 넘게 걸려서 실제 전환 때 겪지 않게 한다.
+    /// Music이 꺼져 있으면 띄우지 않는다.
+    public static func warmUp() {
+        _ = MusicEvents.playerState
+        run(cache: true, """
+        if application "Music" is running then
+            tell application "Music" to get player state
+        end if
         """)
+    }
+
+    // osascript 프로세스를 띄우면 호출마다 150ms 이상 걸린다. 앱 안에서 컴파일해 둔 NSAppleScript는 수 ms.
+    // NSAppleScript는 스레드 안전하지 않아 전용 직렬 큐에서만 실행한다.
+    private static let queue = DispatchQueue(label: "MusicScripting")
+    private static var compiled: [String: NSAppleScript] = [:]  // queue에서만 접근
+
+    @discardableResult
+    private static func run(_ source: String, cache: Bool = false) -> String? {
+        queue.sync {
+            let script: NSAppleScript
+            if cache, let cached = compiled[source] {
+                script = cached
+            } else {
+                guard let fresh = NSAppleScript(source: source) else { return nil }
+                var compileError: NSDictionary?
+                guard fresh.compileAndReturnError(&compileError) else { return nil }
+                if cache { compiled[source] = fresh }
+                script = fresh
+            }
+            var error: NSDictionary?
+            let result = script.executeAndReturnError(&error)
+            guard error == nil else { return nil }
+            return (result.stringValue ?? "").trimmingCharacters(in: .newlines)
+        }
     }
 
     @discardableResult
-    private static func run(_ source: String) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", source]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return nil }
-        p.waitUntilExit()
-        guard p.terminationStatus == 0,
-              let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) else { return nil }
-        return text.trimmingCharacters(in: .newlines)
+    private static func run(cache: Bool, _ source: String) -> String? {
+        run(source, cache: cache)
     }
 
     /// playerInfo 알림의 PersistentID(부호 있는 정수)를 AppleScript 형식(16자리 hex)으로 바꾼다.

@@ -5,7 +5,7 @@
 "LosslessSwitcher is running. Both apps will fight over the sample rate" = "LosslessSwitcher가 실행 중입니다. 같이 쓰면 서로 샘플레이트를 바꿉니다";
 "Auto Switch" = "자동 전환";
 "Pause While Switching" = "전환 시 일시정지";
-"Pauses only when the sample rate changes. Restarts the track from the beginning if it was within the first 3 seconds." = "샘플레이트가 바뀔 때만 멈춥니다. 곡 시작 3초 안이면 처음부터 다시 재생합니다.";
+"Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends." = "샘플레이트가 바뀔 때만 멈춥니다. 다음 곡의 샘플레이트를 미리 알면 지금 곡이 끝나기 직전에 멈춥니다.";
 "Set Delay Manually…" = "대기 시간 직접 입력…";
 "Launch at Login" = "로그인 시 실행";
 "Recent Activity" = "최근 기록";
@@ -41,3 +41,8 @@
 "Sample rate changed externally: %ld  (%@)" = "외부에서 샘플레이트 변경: %1$ld  (%2$@)";
 "local file %@" = "로컬 파일 %@";
 "log stream ended" = "log stream 종료됨";
+"Resumed (next track)" = "재생 재개 (다음 곡)";
+"Next track is %ld Hz, will pause just before this one ends" = "다음 곡은 %ld Hz, 이 곡이 끝나기 직전에 일시정지 예정";
+"Pausing %ldms before the end" = "곡 끝 %ldms 전 일시정지";
+"Paused in %ldms (%ld tries)" = "일시정지 확인 %1$ldms (%2$ld회 시도)";
+"Couldn’t confirm pause in %ldms (%ld tries)" = "일시정지 확인 실패 %1$ldms (%2$ld회 시도)";

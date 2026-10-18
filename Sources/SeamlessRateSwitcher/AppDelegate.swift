@@ -1,5 +1,6 @@
 import AppKit
 import NoteGlyph
+import OSLog
 import RateCore
 import ServiceManagement
 
@@ -9,12 +10,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var history: [(Date, RateSwitcher.Message)] = []
     private let historyLimit = 30
 
+    private static let log = Logger(subsystem: "dev.blancgoat.SeamlessRateSwitcher", category: "switch")
     private static let enabledKey = "autoSwitchEnabled"
     private static let settleEnabledKey = "settleEnabled"
     /// 전환 시 일시정지 후 추가 대기(ms). 인터페이스마다 클럭을 다시 잡는 시간이 달라 사용자가 정한다
     private static let settleDelayKey = "settleDelayMs"
-    /// 클럭을 다시 잡는 데 2초 넘게 걸리는 인터페이스가 많아 넉넉하게 잡는다
-    private static let defaultSettleDelayMs = 3000
+    /// 장치가 rate 변경을 확인한 뒤에도 클럭을 다 잡기까지 수 초 걸리는 인터페이스가 많아 넉넉하게 잡는다
+    private static let defaultSettleDelayMs = 5000
     private static let sliderMaxMs = 10000.0
     private static let inputMaxMs = 30000
 
@@ -36,6 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applySettleDelay()
         switcher.onMessage = { [weak self] message in
             guard let self else { return }
+            // 최근 기록과 같은 내용을 시스템 로그에도 남긴다 (log show --predicate 'subsystem == "dev.blancgoat.SeamlessRateSwitcher"')
+            switch message {
+            case let .info(text): Self.log.info("\(text, privacy: .public)")
+            case let .action(text): Self.log.notice("\(text, privacy: .public)")
+            case let .warning(text): Self.log.error("\(text, privacy: .public)")
+            }
             history.append((Date(), message))
             if history.count > historyLimit { history.removeFirst(history.count - historyLimit) }
         }
@@ -115,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
-        settle.toolTip = L("Pauses only when the sample rate changes. Restarts the track from the beginning if it was within the first 3 seconds.")
+        settle.toolTip = L("Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends.")
         menu.addItem(settle)
         if settleEnabled {
             let sliderItem = NSMenuItem()

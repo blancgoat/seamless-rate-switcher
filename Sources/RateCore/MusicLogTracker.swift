@@ -36,6 +36,8 @@ public final class MusicLogTracker {
 
     public init() {}
 
+    public func currentItem(of player: String) -> String? { currentItem[player] }
+
     // [0x74c05bf400|P/WX] <0x74b0940000|I/LUM.01>
     private static let itemLog = try! NSRegularExpression(pattern: #"\|P/(\w+)\] <0x[0-9a-f]+\|(I/[\w.]+)>"#)
     // RP/WX.26 Creating AudioQueue with format:'qlac', framesPerPacket:4096, sampleRate:44100
