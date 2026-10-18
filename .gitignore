@@ -2,3 +2,4 @@
 .swiftpm/
 captures/
 .DS_Store
+build/
