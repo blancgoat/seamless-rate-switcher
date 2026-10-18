@@ -258,20 +258,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         applyReadyScript()
     }
 
+    /// 스크립트가 없으면 누르면 바로 선택 창이 뜨는 항목, 있으면 "지우기"만 있는 하위 메뉴.
+    /// 다른 스크립트로 바꾸려면 지운 뒤 다시 선택한다.
     private func makeReadyScriptItem() -> NSMenuItem {
-        let name = readyScriptURL?.lastPathComponent ?? L("None")
-        let item = NSMenuItem(title: "    " + L("Ready Script: %@", name), action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        let choose = NSMenuItem(title: L("Choose Script…"), action: #selector(chooseReadyScript), keyEquivalent: "")
-        choose.target = self
-        submenu.addItem(choose)
-        if readyScriptURL != nil {
-            let remove = NSMenuItem(title: L("Remove Ready Script"), action: #selector(removeReadyScript), keyEquivalent: "")
-            remove.target = self
-            submenu.addItem(remove)
+        guard let url = readyScriptURL else {
+            let choose = NSMenuItem(title: "    " + L("Choose Ready Script…"), action: #selector(chooseReadyScript), keyEquivalent: "")
+            choose.target = self
+            choose.toolTip = L("Resumes as soon as the script exits. Even if it fails, playback resumes right away.")
+            return choose
         }
-        submenu.addItem(.separator())
-        submenu.addItem(disabled: L("Resumes as soon as the script exits. Even if it fails, playback resumes right away."))
+        let item = NSMenuItem(title: "    " + L("Ready Script: %@", url.lastPathComponent), action: nil, keyEquivalent: "")
+        item.toolTip = url.path
+        let submenu = NSMenu()
+        let remove = NSMenuItem(title: L("Remove Ready Script"), action: #selector(removeReadyScript), keyEquivalent: "")
+        remove.target = self
+        submenu.addItem(remove)
         item.submenu = submenu
         return item
     }

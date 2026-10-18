@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Security
 
-// Seamless Rate Switcher의 "준비 확인 스크립트"용 MOTU Gen 5 헬퍼.
+// Seamless Rate Switcher의 "준비 확인 스크립트": MOTU UltraLite mk5 (MOTU Gen 5 드라이버).
 //
 // MOTU 장치의 제어 채널은 MOTUWebSocketProxy가 USB를 독점하고 있어서,
 // CueMix 5와 같은 방식으로 로컬 프록시(ws://127.0.0.1:1281/<시리얼>)에 접속해 장치 속성을 읽는다.
@@ -10,9 +10,9 @@ import Security
 // 이 시점이 DAC 출력이 다시 열리는 시점으로 보인다 (CueMix 정의에 없는 속성, 실측으로 찾음).
 //
 // 사용:
-//   motu-ready set-password [시리얼]   비밀번호를 입력받아 SHA-256 해시만 키체인에 저장하고 인증을 확인
-//   motu-ready watch [시리얼]          샘플레이트 변경 전후의 잠김·준비 신호 시점을 계속 출력
-//   motu-ready [시리얼]                준비 신호(id 22)가 오면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
+//   motu-ultralite-mk5 set-password [시리얼]   비밀번호를 입력받아 SHA-256 해시만 키체인에 저장하고 인증을 확인
+//   motu-ultralite-mk5 watch [시리얼]          샘플레이트 변경 전후의 잠김·준비 신호 시점을 계속 출력
+//   motu-ultralite-mk5 [시리얼]                준비 신호(id 22)가 오면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
 //
 // 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5eff6f7a)에서 얻는다.
 // 종료 코드: 0 준비됨, 1 접속/프로토콜 오류, 2 시리얼·비밀번호 없음, 3 인증 실패, 4 시간 초과
@@ -28,15 +28,15 @@ enum Prop {
                         measuredRate: "id17", clockValid: "id18", outputReady: "id22(ready)"]
 }
 
-let keychainService = "dev.blancgoat.SeamlessRateSwitcher.motu-ready"
+let keychainService = "dev.blancgoat.SeamlessRateSwitcher.motu-ultralite-mk5"
 
 func fail(_ code: Int32, _ message: String) -> Never {
-    FileHandle.standardError.write("motu-ready: \(message)\n".data(using: .utf8)!)
+    FileHandle.standardError.write("motu-ultralite-mk5: \(message)\n".data(using: .utf8)!)
     exit(code)
 }
 
 func info(_ message: String) {
-    FileHandle.standardError.write("motu-ready: \(message)\n".data(using: .utf8)!)
+    FileHandle.standardError.write("motu-ultralite-mk5: \(message)\n".data(using: .utf8)!)
 }
 
 // MARK: - 인자
@@ -62,7 +62,7 @@ let serial: String = {
        let tail = uid.split(separator: ":").last {
         return tail.uppercased()
     }
-    fail(2, "시리얼을 알 수 없습니다. motu-ready [시리얼] 또는 SRS_DEVICE_UID 환경 변수가 필요합니다.")
+    fail(2, "시리얼을 알 수 없습니다. motu-ultralite-mk5 [시리얼] 또는 SRS_DEVICE_UID 환경 변수가 필요합니다.")
 }()
 
 // MARK: - 키체인 (비밀번호 원문 대신 CueMix와 같은 SHA-256 16진수 해시만 저장)
@@ -80,7 +80,7 @@ func storeHash(_ hash: String) {
     SecItemDelete(base as CFDictionary)
     var add = base
     add[kSecValueData] = Data(hash.utf8)
-    add[kSecAttrLabel] = "Seamless Rate Switcher – MOTU \(serial)"
+    add[kSecAttrLabel] = "Seamless Rate Switcher – MOTU UltraLite mk5 \(serial)"
     let status = SecItemAdd(add as CFDictionary, nil)
     if status != errSecSuccess { fail(1, "키체인 저장 실패 (OSStatus \(status))") }
 }
@@ -182,9 +182,9 @@ final class ProxyClient {
             if key == nil { fail(1, "프록시 공개키를 읽지 못했습니다") }
         case 0:  // kAuthRequest (두 번째부터는 앞 인증이 틀렸다는 뜻)
             authAttempts += 1
-            if authAttempts > 1 { fail(3, "인증 실패: 저장된 비밀번호가 맞지 않습니다. motu-ready set-password로 다시 저장하세요.") }
+            if authAttempts > 1 { fail(3, "인증 실패: 저장된 비밀번호가 맞지 않습니다. motu-ultralite-mk5 set-password로 다시 저장하세요.") }
             guard let hash = passwordHash() else {
-                fail(2, "비밀번호가 없습니다. 먼저 터미널에서 motu-ready set-password \(serial) 를 실행하세요.")
+                fail(2, "비밀번호가 없습니다. 먼저 터미널에서 motu-ultralite-mk5 set-password \(serial) 를 실행하세요.")
             }
             sendAuth(hash)
         default:

@@ -3,3 +3,5 @@
 captures/
 .DS_Store
 build/
+example_ready_scripts/*/.build/
+example_ready_scripts/motu-ultralite-mk5/motu-ultralite-mk5

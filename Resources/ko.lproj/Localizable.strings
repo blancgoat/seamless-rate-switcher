@@ -43,7 +43,6 @@
 "Ready script finished in %ldms" = "준비 확인 스크립트 완료 %ldms";
 "Ready script failed (%@), resuming after %ldms" = "준비 확인 스크립트 실패 (%1$@), %2$ldms 뒤 재개";
 "Ready Script: %@" = "준비 확인 스크립트: %@";
-"Choose Script…" = "스크립트 선택…";
 "Remove Ready Script" = "스크립트 지우기";
 "Choose a script that exits 0 when the audio interface is ready." = "오디오 인터페이스가 준비되면 exit 0으로 끝나는 스크립트를 고르세요.";
 "Only use scripts you trust" = "신뢰할 수 있는 스크립트만 사용하세요";
@@ -52,3 +51,4 @@
 "Delay: decided by the ready script" = "대기: 준비 확인 스크립트가 결정";
 "Resumes as soon as the script exits. Even if it fails, playback resumes right away." = "스크립트가 끝나면 바로 재생합니다. 실패해도 따로 기다리지 않고 바로 재생합니다.";
 "Extra delay" = "추가 대기";
+"Choose Ready Script…" = "준비 확인 스크립트 선택…";
