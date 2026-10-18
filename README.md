@@ -1,6 +1,12 @@
 <img width="297" height="261" alt="image" src="https://github.com/user-attachments/assets/1717475b-3746-4c6e-ac48-5dfc36da735e" />
 
 
+
+https://github.com/user-attachments/assets/e8b8c2ee-830b-4a9f-a59f-6587e2972266
+
+
+
+
 # Seamless Rate Switcher
 
 **English** | [한국어](README.ko.md)
