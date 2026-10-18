@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             try switcher.start()
         } catch {
-            history.append((Date(), .warning("Failed to start log stream: \(error.localizedDescription)")))
+            history.append((Date(), .warning(L("Failed to start log stream: %@", error.localizedDescription))))
         }
         updateTitle()
     }
@@ -93,45 +93,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let device = AudioDevice.defaultOutput {
             menu.addItem(disabled: "\(device.name) · \(Self.shortRate(device.nominalSampleRate))Hz")
         } else {
-            menu.addItem(disabled: "No output device")
+            menu.addItem(disabled: L("No output device"))
         }
         if let target = switcher.target {
-            menu.addItem(disabled: "Last track: \(Self.shortRate(target.sampleRate))Hz · \(target.reason)")
+            menu.addItem(disabled: L("Last track: %@Hz · %@", Self.shortRate(target.sampleRate), target.reason))
         }
         if !switcher.isRunning {
-            menu.addItem(disabled: "⚠︎ Stopped reading Music logs (please relaunch the app)")
+            menu.addItem(disabled: "⚠︎ " + L("Stopped reading Music logs (please relaunch the app)"))
         }
         if isLosslessSwitcherRunning {
-            menu.addItem(disabled: "⚠︎ LosslessSwitcher is running. Both apps will fight over the sample rate")
+            menu.addItem(disabled: "⚠︎ " + L("LosslessSwitcher is running. Both apps will fight over the sample rate"))
         }
 
         menu.addItem(.separator())
 
-        let toggle = NSMenuItem(title: "Auto Switch", action: #selector(toggleEnabled), keyEquivalent: "")
+        let toggle = NSMenuItem(title: L("Auto Switch"), action: #selector(toggleEnabled), keyEquivalent: "")
         toggle.target = self
         toggle.state = switcher.isEnabled ? .on : .off
         menu.addItem(toggle)
 
-        let settle = NSMenuItem(title: "Pause While Switching", action: #selector(toggleSettle), keyEquivalent: "")
+        let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
-        settle.toolTip = "Pauses only when the sample rate changes. Restarts the track from the beginning if it was within the first 3 seconds."
+        settle.toolTip = L("Pauses only when the sample rate changes. Restarts the track from the beginning if it was within the first 3 seconds.")
         menu.addItem(settle)
         if settleEnabled {
             let sliderItem = NSMenuItem()
             sliderItem.view = makeSettleSliderView()
             menu.addItem(sliderItem)
-            let input = NSMenuItem(title: "    Set Delay Manually…", action: #selector(inputSettleDelay), keyEquivalent: "")
+            let input = NSMenuItem(title: "    " + L("Set Delay Manually…"), action: #selector(inputSettleDelay), keyEquivalent: "")
             input.target = self
             menu.addItem(input)
         }
 
-        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let login = NSMenuItem(title: L("Launch at Login"), action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let historyItem = NSMenuItem(title: "Recent Activity", action: nil, keyEquivalent: "")
+        let historyItem = NSMenuItem(title: L("Recent Activity"), action: nil, keyEquivalent: "")
         let historyMenu = NSMenu()
         let clock = DateFormatter()
         clock.dateFormat = "HH:mm:ss"
@@ -144,12 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             historyMenu.addItem(disabled: "\(clock.string(from: date))  \(text)")
         }
-        if history.isEmpty { historyMenu.addItem(disabled: "None") }
+        if history.isEmpty { historyMenu.addItem(disabled: L("None")) }
         historyItem.submenu = historyMenu
         menu.addItem(historyItem)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: L("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
     private var isLosslessSwitcherRunning: Bool {
@@ -181,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private static func settleLabelText(_ ms: Int) -> String {
-        "Extra delay  \(ms)ms" + (Double(ms) > sliderMaxMs ? "  (custom)" : "")
+        L("Extra delay  %ldms", ms) + (Double(ms) > sliderMaxMs ? "  " + L("(custom)") : "")
     }
 
     @objc private func toggleSettle() {
@@ -212,14 +212,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func inputSettleDelay() {
         let alert = NSAlert()
-        alert.messageText = "Extra Delay After Switching"
-        alert.informativeText = "After the device confirms the new sample rate, wait this long before resuming playback. (0–\(Self.inputMaxMs) ms)"
+        alert.messageText = L("Extra Delay After Switching")
+        alert.informativeText = L("After the device confirms the new sample rate, wait this long before resuming playback. (0–%ld ms)", Self.inputMaxMs)
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         field.stringValue = "\(settleDelayMs)"
         field.placeholderString = "ms"
         alert.accessoryView = field
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("OK"))
+        alert.addButton(withTitle: L("Cancel"))
         alert.window.initialFirstResponder = field
         NSApp.activate(ignoringOtherApps: true)  // 메뉴바 전용 앱이라 창을 앞으로 가져와야 입력 가능
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -240,8 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Couldn’t Change Launch at Login"
-            alert.informativeText = "\(error.localizedDescription)\nThe app may need to be in /Applications."
+            alert.messageText = L("Couldn’t Change Launch at Login")
+            alert.informativeText = error.localizedDescription + "\n" + L("The app may need to be in /Applications.")
             alert.runModal()
         }
     }

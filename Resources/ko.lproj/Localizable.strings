@@ -1,0 +1,43 @@
+/* 메뉴 */
+"No output device" = "출력 장치 없음";
+"Last track: %@Hz · %@" = "마지막 곡: %1$@Hz · %2$@";
+"Stopped reading Music logs (please relaunch the app)" = "Music 로그 수신이 멈췄습니다 (앱을 다시 실행하세요)";
+"LosslessSwitcher is running. Both apps will fight over the sample rate" = "LosslessSwitcher가 실행 중입니다. 같이 쓰면 서로 샘플레이트를 바꿉니다";
+"Auto Switch" = "자동 전환";
+"Pause While Switching" = "전환 시 일시정지";
+"Pauses only when the sample rate changes. Restarts the track from the beginning if it was within the first 3 seconds." = "샘플레이트가 바뀔 때만 멈춥니다. 곡 시작 3초 안이면 처음부터 다시 재생합니다.";
+"Set Delay Manually…" = "대기 시간 직접 입력…";
+"Launch at Login" = "로그인 시 실행";
+"Recent Activity" = "최근 기록";
+"None" = "없음";
+"Quit" = "종료";
+"Extra delay  %ldms" = "추가 대기  %ldms";
+"(custom)" = "(직접 입력값)";
+
+/* 알림창 */
+"Extra Delay After Switching" = "전환 후 추가 대기 시간";
+"After the device confirms the new sample rate, wait this long before resuming playback. (0–%ld ms)" = "장치가 새 샘플레이트를 확인한 뒤 이만큼 더 기다렸다가 재생을 재개합니다. (0–%ld ms)";
+"OK" = "확인";
+"Cancel" = "취소";
+"Couldn’t Change Launch at Login" = "로그인 시 실행 설정 실패";
+"The app may need to be in /Applications." = "앱이 /Applications에 있어야 할 수 있습니다.";
+"Failed to start log stream: %@" = "log stream 실행 실패: %@";
+
+/* 최근 기록 */
+"Format     P/%@ %@ = %@" = "포맷 기록  P/%1$@ %2$@ = %3$@";
+"Track      P/%@ %@ → %@" = "곡 전환    P/%1$@ %2$@ → %3$@";
+"Waiting    P/%@ %@" = "포맷 대기  P/%1$@ %2$@";
+"Auto switch off, not applying %ld  (%@)" = "자동 전환 꺼짐, %1$ld 적용 안 함  (%2$@)";
+"No default output device" = "기본 출력 장치 없음";
+"= rate %ld unchanged  (%@, %@)" = "= rate %1$ld 유지  (%2$@, %3$@)";
+"%@ doesn’t support %ld, skipped" = "%1$@는 %2$ld을 지원하지 않아 건너뜀";
+"Failed to set sample rate, OSStatus=%ld" = "샘플레이트 변경 실패, OSStatus=%ld";
+"Device confirmed in %ldms, resuming after %ldms" = "장치 확인 %1$ldms, %2$ldms 대기 후 재개";
+"No confirmation from device (%ldms), resuming after %ldms" = "장치 확인 알림 없음 (%1$ldms), %2$ldms 대기 후 재개";
+"Resumed (from the beginning)" = "재생 재개 (처음부터)";
+"Resumed" = "재생 재개";
+"Device: %@ %ld Hz" = "장치: %1$@ %2$ld Hz";
+"Default output changed: %@ %ld Hz" = "기본 출력 장치 변경: %1$@ %2$ld Hz";
+"Sample rate changed externally: %ld  (%@)" = "외부에서 샘플레이트 변경: %1$ld  (%2$@)";
+"local file %@" = "로컬 파일 %@";
+"log stream ended" = "log stream 종료됨";
