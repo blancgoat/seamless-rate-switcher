@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let settleEnabledKey = "settleEnabled"
     /// 전환 시 일시정지 후 추가 대기(ms). 인터페이스마다 클럭을 다시 잡는 시간이 달라 사용자가 정한다
     private static let settleDelayKey = "settleDelayMs"
+    /// 준비 확인 스크립트 경로 (없으면 고정 대기 시간만 사용)
+    private static let readyScriptKey = "readyScriptPath"
     /// 장치가 rate 변경을 확인한 뒤에도 클럭을 다 잡기까지 수 초 걸리는 인터페이스가 많아 넉넉하게 잡는다
     private static let defaultSettleDelayMs = 5000
     private static let sliderMaxMs = 10000.0
@@ -34,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
 
         applySettleDelay()
+        applyReadyScript()
         switcher.onMessage = { [weak self] message in
             guard let self else { return }
             // 최근 기록과 같은 내용을 시스템 로그에도 남긴다 (log show --predicate 'subsystem == "dev.blancgoat.SeamlessRateSwitcher"')
@@ -119,12 +122,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settle.toolTip = L("Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends.")
         menu.addItem(settle)
         if settleEnabled {
-            let sliderItem = NSMenuItem()
-            sliderItem.view = makeSettleSliderView()
-            menu.addItem(sliderItem)
-            let input = NSMenuItem(title: "    " + L("Set Delay Manually…"), action: #selector(inputSettleDelay), keyEquivalent: "")
-            input.target = self
-            menu.addItem(input)
+            if readyScriptURL == nil {
+                let sliderItem = NSMenuItem()
+                sliderItem.view = makeSettleSliderView()
+                menu.addItem(sliderItem)
+                let input = NSMenuItem(title: "    " + L("Set Delay Manually…"), action: #selector(inputSettleDelay), keyEquivalent: "")
+                input.target = self
+                menu.addItem(input)
+            } else {
+                // 스크립트가 준비 시점을 정하므로 고정 대기 시간은 숨긴다
+                menu.addItem(disabled: "    " + L("Delay: decided by the ready script"))
+            }
+            menu.addItem(makeReadyScriptItem())
         }
 
         let login = NSMenuItem(title: L("Launch at Login"), action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
@@ -173,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setSettleDelay(_ ms: Int) {
         UserDefaults.standard.set(ms, forKey: Self.settleDelayKey)
         applySettleDelay()
+        applyReadyScript()
         settleLabel?.stringValue = Self.settleLabelText(ms)
     }
 
@@ -183,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleSettle() {
         UserDefaults.standard.set(!settleEnabled, forKey: Self.settleEnabledKey)
         applySettleDelay()
+        applyReadyScript()
     }
 
     /// 메뉴 안에 들어가는 라벨 + 슬라이더 (0~10초, 100ms 단위). 드래그하는 동안 바로 반영된다.
@@ -224,6 +235,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         setSettleDelay(ms)
+    }
+
+    // MARK: - 준비 확인 스크립트
+
+    private var readyScriptURL: URL? {
+        UserDefaults.standard.string(forKey: Self.readyScriptKey).map { URL(fileURLWithPath: $0) }
+    }
+
+    private func applyReadyScript() {
+        switcher.readyScript = readyScriptURL
+    }
+
+    private func setReadyScript(_ url: URL?) {
+        UserDefaults.standard.set(url?.path, forKey: Self.readyScriptKey)
+        applyReadyScript()
+    }
+
+    private func makeReadyScriptItem() -> NSMenuItem {
+        let name = readyScriptURL?.lastPathComponent ?? L("None")
+        let item = NSMenuItem(title: "    " + L("Ready Script: %@", name), action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let choose = NSMenuItem(title: L("Choose Script…"), action: #selector(chooseReadyScript), keyEquivalent: "")
+        choose.target = self
+        submenu.addItem(choose)
+        if readyScriptURL != nil {
+            let remove = NSMenuItem(title: L("Remove Ready Script"), action: #selector(removeReadyScript), keyEquivalent: "")
+            remove.target = self
+            submenu.addItem(remove)
+        }
+        submenu.addItem(.separator())
+        submenu.addItem(disabled: L("Resumes as soon as the script exits. Even if it fails, playback resumes right away."))
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func chooseReadyScript() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = L("Choose a script that exits 0 when the audio interface is ready.")
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url, confirmReadyScript(url) else { return }
+        setReadyScript(url)
+    }
+
+    /// 스크립트는 샘플레이트가 바뀔 때마다 사용자 권한으로 자동 실행되므로, 등록 전에 위험을 알리고 확인받는다.
+    private func confirmReadyScript(_ url: URL) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L("Only use scripts you trust")
+        alert.informativeText = L("This script will run automatically with your user permissions every time the sample rate changes. Scripts downloaded from the internet may contain malicious code. You are responsible for any script you choose to run.") + "\n\n" + url.path
+        alert.addButton(withTitle: L("Cancel"))           // 기본 버튼: 실수로 Enter를 눌러도 등록되지 않게
+        alert.addButton(withTitle: L("Use This Script"))
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    @objc private func removeReadyScript() {
+        setReadyScript(nil)
     }
 
     @objc private func toggleLaunchAtLogin() {

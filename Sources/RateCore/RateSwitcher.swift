@@ -31,6 +31,13 @@ public final class RateSwitcher {
     /// 인터페이스가 클럭을 다시 잡는 시간은 Mac 쪽에 신호가 없어서 사용자가 정한다. nil이면 일시정지하지 않는다.
     public var settleDelay: TimeInterval?
 
+    /// 장치가 rate 변경을 확인한 뒤 실행할 준비 확인 스크립트 (ReadyScript 참고).
+    /// 끝나면 바로 재생한다. 스크립트가 있으면 settleDelay는 쓰지 않고, 실패하거나
+    /// readyScriptTimeout을 넘겨도 따로 기다리지 않는다 (준비 판단은 전적으로 스크립트 몫).
+    public var readyScript: URL?
+    public var readyScriptTimeout: TimeInterval = 15
+    public var readyScriptFallbackDelay: TimeInterval = 0
+
     /// 곡이 끝나기 이만큼 전에 미리 멈춘다. 새 곡 소리가 잘못된 rate로 한 번도 나가지 않게 하려는 것.
     public var preEndLead: TimeInterval = 0.15
 
@@ -40,6 +47,7 @@ public final class RateSwitcher {
     /// 일시정지 → rate 변경 → 대기 → 재개 흐름이 진행 중
     private var switchInFlight = false
     private var rateConfirmed: (() -> Void)?
+    private var runningReadyScript: ReadyScript?
     /// 미리 불러온 다음 곡 (rate가 지금과 다를 때만). 곡 끝 직전 일시정지 감시 대상
     private var upcoming: (player: String, item: String, format: MusicLogTracker.Format)?
     private var endWatchGeneration = 0
@@ -92,6 +100,7 @@ public final class RateSwitcher {
 
     public func stop() {
         disarmEndWatch()
+        runningReadyScript?.cancel()
         logProcess?.terminate()
         logProcess = nil
         if let playerInfoObserver {
@@ -156,6 +165,8 @@ public final class RateSwitcher {
         let started = Date()
         switchInFlight = true
         disarmEndWatch()
+        runningReadyScript?.cancel()
+        runningReadyScript = nil
 
         let proceed = { [self] in
             // 일시정지하는 동안 더 새로운 전환이 시작됐으면 그쪽에 맡긴다
@@ -166,6 +177,13 @@ public final class RateSwitcher {
                 finished = true
                 rateConfirmed = nil
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
+                if let readyScript {
+                    onMessage?(confirmed
+                        ? .info(L("Device confirmed in %ldms, running ready script", ms))
+                        : .warning(L("No confirmation from device (%ldms), running ready script", ms)))
+                    waitForReadyScript(readyScript, device: device, rate: rate, generation: generation, fallbackDelay: readyScriptFallbackDelay)
+                    return
+                }
                 onMessage?(confirmed
                     ? .info(L("Device confirmed in %ldms, resuming after %ldms", ms, Int(settleDelay * 1000)))
                     : .warning(L("No confirmation from device (%ldms), resuming after %ldms", ms, Int(settleDelay * 1000))))
@@ -197,6 +215,26 @@ public final class RateSwitcher {
                     : .warning(L("Couldn’t confirm pause in %ldms (%ld tries)", ms, result.attempts)))
                 self.heldPause = result.state
                 proceed()
+            }
+        }
+    }
+
+    /// 준비 확인 스크립트가 exit 0으로 끝나면 바로 재개. 실패하면 고정 대기 시간 중 남은 만큼 기다렸다가 재개.
+    private func waitForReadyScript(_ url: URL, device: AudioDevice, rate: Double, generation: Int, fallbackDelay: TimeInterval) {
+        let started = Date()
+        let environment = ["SRS_SAMPLE_RATE": String(Int(rate)), "SRS_DEVICE_UID": device.uid, "SRS_DEVICE_NAME": device.name]
+        runningReadyScript = ReadyScript(url: url, environment: environment, timeout: readyScriptTimeout) { [weak self] outcome in
+            guard let self, generation == switchGeneration else { return }
+            runningReadyScript = nil
+            let elapsed = Date().timeIntervalSince(started)
+            switch outcome {
+            case .ready:
+                onMessage?(.info(L("Ready script finished in %ldms", Int(elapsed * 1000))))
+                resumeHeld(generation: generation)
+            case .failed(let reason):
+                let remaining = max(fallbackDelay - elapsed, 0)
+                onMessage?(.warning(L("Ready script failed (%@), resuming after %ldms", reason, Int(remaining * 1000))))
+                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { self.resumeHeld(generation: generation) }
             }
         }
     }

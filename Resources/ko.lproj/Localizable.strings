@@ -44,3 +44,16 @@
 "Pausing %ldms before the end" = "곡 끝 %ldms 전 일시정지";
 "Paused in %ldms (%ld tries)" = "일시정지 확인 %1$ldms (%2$ld회 시도)";
 "Couldn’t confirm pause in %ldms (%ld tries)" = "일시정지 확인 실패 %1$ldms (%2$ld회 시도)";
+"Device confirmed in %ldms, running ready script" = "장치 확인 %ldms, 준비 확인 스크립트 실행";
+"No confirmation from device (%ldms), running ready script" = "장치 확인 알림 없음 (%ldms), 준비 확인 스크립트 실행";
+"Ready script finished in %ldms" = "준비 확인 스크립트 완료 %ldms";
+"Ready script failed (%@), resuming after %ldms" = "준비 확인 스크립트 실패 (%1$@), %2$ldms 뒤 재개";
+"Ready Script: %@" = "준비 확인 스크립트: %@";
+"Choose Script…" = "스크립트 선택…";
+"Remove Ready Script" = "스크립트 지우기";
+"Choose a script that exits 0 when the audio interface is ready." = "오디오 인터페이스가 준비되면 exit 0으로 끝나는 스크립트를 고르세요.";
+"Only use scripts you trust" = "신뢰할 수 있는 스크립트만 사용하세요";
+"This script will run automatically with your user permissions every time the sample rate changes. Scripts downloaded from the internet may contain malicious code. You are responsible for any script you choose to run." = "이 스크립트는 샘플레이트가 바뀔 때마다 사용자 권한으로 자동 실행됩니다. 인터넷에서 받은 스크립트에는 악성 코드가 있을 수 있습니다. 선택한 스크립트를 실행해서 생기는 결과는 사용자 책임입니다.";
+"Use This Script" = "이 스크립트 사용";
+"Delay: decided by the ready script" = "대기: 준비 확인 스크립트가 결정";
+"Resumes as soon as the script exits. Even if it fails, playback resumes right away." = "스크립트가 끝나면 바로 재생합니다. 실패해도 따로 기다리지 않고 바로 재생합니다.";

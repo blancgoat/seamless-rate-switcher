@@ -21,6 +21,15 @@ public struct AudioDevice: Hashable {
         return name.takeRetainedValue() as String
     }
 
+    /// 재부팅·재연결에도 바뀌지 않는 장치 식별자 (예: "com_motu_driver_gen5_control_interface:ul5eff6f7a")
+    public var uid: String {
+        var addr = Self.address(kAudioDevicePropertyDeviceUID)
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &uid) == noErr, let uid else { return "" }
+        return uid.takeRetainedValue() as String
+    }
+
     public var nominalSampleRate: Double { float64(kAudioDevicePropertyNominalSampleRate) }
     public var actualSampleRate: Double { float64(kAudioDevicePropertyActualSampleRate) }
 
