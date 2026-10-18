@@ -35,7 +35,7 @@ public final class RateSwitcher {
     /// 끝나면 바로 재생한다. 스크립트가 있으면 settleDelay는 쓰지 않고, 실패하거나
     /// readyScriptTimeout을 넘겨도 따로 기다리지 않는다 (준비 판단은 전적으로 스크립트 몫).
     public var readyScript: URL?
-    public var readyScriptTimeout: TimeInterval = 15
+    public var readyScriptTimeout: TimeInterval = 20
     public var readyScriptFallbackDelay: TimeInterval = 0
 
     /// 곡이 끝나기 이만큼 전에 미리 멈춘다. 새 곡 소리가 잘못된 rate로 한 번도 나가지 않게 하려는 것.

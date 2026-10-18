@@ -284,6 +284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     private func applyReadyScript() {
         switcher.readyScript = readyScriptURL
+        // 스크립트가 고정 대기 시간의 최대값보다 오래 붙잡지 않게 같은 값으로 맞춘다
+        switcher.readyScriptTimeout = TimeInterval(Self.sliderMaxMs) / 1000
     }
 
     private func setReadyScript(_ url: URL?) {
