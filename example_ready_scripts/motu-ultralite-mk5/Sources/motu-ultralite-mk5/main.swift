@@ -5,14 +5,16 @@ import Foundation
 //
 // MOTU 장치의 제어 채널은 MOTUWebSocketProxy가 USB를 독점하고 있어서,
 // CueMix 5와 같은 방식으로 로컬 프록시(ws://127.0.0.1:1281/<시리얼>)에 접속해 장치 속성을 읽는다.
-// 샘플레이트를 바꾸면 장치가 FPGA/PLL 잠김(id 15/16) 뒤 약 3초 후에 id 22를 잠깐 1로 올리는데,
-// 이 시점이 DAC 출력이 다시 열리는 시점으로 보인다 (CueMix 정의에 없는 속성, 실측으로 찾음).
+// id 22는 출력 준비 상태로 보인다 (CueMix 정의에 없는 속성, 실측으로 찾음): 샘플레이트 변경을 시작하면 0,
+// FPGA/PLL 잠김(id 15/16) 약 3초 뒤 1. 평소엔 1로 남아 있을 때도, 잠깐만 1로 깜빡이고 0으로 돌아갈 때도 있었다.
+// 앱은 장치가 변경을 알리기(약 1.4초)보다 먼저(약 0.6초) 이 스크립트를 실행하므로,
+// 접속 시점의 값은 이전 상태일 수 있다. 그래서 "새 샘플레이트 + 접속 뒤 id 22가 0이 됐다가 다시 1"을 기다린다.
 //
 // CueMix 5의 비밀번호(원격 제어 비밀번호)가 꺼져 있을 때만 동작한다.
 // 켜져 있으면 프록시가 인증을 요구하므로 종료 코드 3으로 끝난다.
 //
 // 사용:
-//   motu-ultralite-mk5 [시리얼]          준비 신호(id 22)가 오면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
+//   motu-ultralite-mk5 [시리얼]          새 샘플레이트로 출력 준비가 끝나면 exit 0 (앱이 샘플레이트를 바꾼 뒤 실행)
 //   motu-ultralite-mk5 watch [시리얼]    샘플레이트 변경 전후의 잠김·준비 신호 시점을 계속 출력
 //
 // 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5xxxxxxx)에서 얻고,
@@ -25,7 +27,7 @@ enum Prop {
     static let pllLocked = 16
     static let measuredRate = 17   // 문서 없음: 잠김 약 1초 뒤 실제 샘플레이트 값이 들어옴
     static let clockValid = 18     // 문서 없음: 잠김 직후 1
-    static let outputReady = 22    // 문서 없음: 잠김 약 3초 뒤 잠깐 1 → DAC 출력 재개로 보임
+    static let outputReady = 22    // 문서 없음: 변경 시작 시 0, 잠김 약 3초 뒤 1 → DAC 출력 재개로 보임
     static let names = [sampleRate: "SampleRate", fpgaLocked: "FPGALocked", pllLocked: "PLLLocked",
                         measuredRate: "id17", clockValid: "id18", outputReady: "id22(ready)"]
 }
@@ -170,11 +172,24 @@ case "watch":
 
 default:
     let started = Date()
+    // 앱이 넘겨준 새 샘플레이트 (터미널에서 직접 실행하면 없음 → 샘플레이트 조건 없이 id 22만 본다)
+    let targetRate = ProcessInfo.processInfo.environment["SRS_SAMPLE_RATE"].flatMap(Int.init)
+    var deviceRate: Int?
+    var sawNotReady = false   // 접속 뒤 id 22가 0인 걸 봤는지 (접속 시점의 1은 이전 상태일 수 있다)
     let client = ProxyClient(serial: serial)
     client.onProperty = { id, bytes in
-        guard id == Prop.outputReady, value(bytes) == 1 else { return }
-        info(String(format: "준비 신호 수신 (%.2fs)", Date().timeIntervalSince(started)))
-        exit(0)
+        switch id {
+        case Prop.sampleRate:
+            deviceRate = value(bytes)
+        case Prop.outputReady:
+            if value(bytes) == 0 { sawNotReady = true; return }
+            let rateMatches = targetRate == nil || deviceRate == targetRate
+            guard sawNotReady, rateMatches else { return }
+            info(String(format: "준비 신호 수신 (%.2fs)", Date().timeIntervalSince(started)))
+            exit(0)
+        default:
+            break
+        }
     }
     client.start()
     DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {

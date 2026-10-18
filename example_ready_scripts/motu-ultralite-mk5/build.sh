@@ -6,5 +6,7 @@ set -eu
 set -o pipefail
 HERE=${0:A:h}
 swift build -c release --build-system native --package-path "$HERE" 2>&1 | grep -v "deprecated"
+# 덮어쓰면 macOS가 이전 서명 정보를 기억해서 새 파일 실행을 막고 강제 종료(Killed: 9)하므로, 지우고 새로 복사한다
+rm -f "$HERE/motu-ultralite-mk5"
 cp "$HERE/.build/release/motu-ultralite-mk5" "$HERE/motu-ultralite-mk5"
 echo "created: $HERE/motu-ultralite-mk5"
