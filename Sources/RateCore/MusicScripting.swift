@@ -28,9 +28,53 @@ public enum MusicScripting {
 
     /// 현재 곡 정보. 실패하면 nil (Music이 꺼져 있거나 자동화 권한 거부).
     public static func currentTrack() -> CurrentTrack? {
+        guard let text = run(script) else { return nil }
+        let parts = text.components(separatedBy: "\t")
+        guard parts.count == 4 else { return nil }
+        return CurrentTrack(persistentID: parts[0], trackClass: parts[1],
+                            sampleRate: Double(parts[2]) ?? 0, localPath: parts[3].isEmpty ? nil : parts[3])
+    }
+
+    // MARK: - rate 전환 중 일시정지
+
+    public struct PauseState {
+        public let persistentID: String
+        /// 일시정지한 시점의 곡 위치(초)
+        public let position: Double
+    }
+
+    /// 재생 중이면 일시정지하고 그 상태를 돌려준다. 재생 중이 아니면 nil.
+    public static func pauseIfPlaying() -> PauseState? {
+        let text = run("""
+        tell application "Music"
+            if player state is not playing then return ""
+            pause
+            return (persistent ID of current track) & tab & (player position as text)
+        end tell
+        """)
+        guard let parts = text?.components(separatedBy: "\t"), parts.count == 2 else { return nil }
+        // 로케일에 따라 소수점이 쉼표로 올 수 있다
+        let position = Double(parts[1].replacingOccurrences(of: ",", with: ".")) ?? 0
+        return PauseState(persistentID: parts[0], position: position)
+    }
+
+    /// 일시정지했던 곡이 그대로면 (필요하면 처음으로 되돌려서) 다시 재생한다.
+    public static func resume(_ state: PauseState, rewind: Bool) {
+        run("""
+        tell application "Music"
+            if persistent ID of current track is "\(state.persistentID)" then
+                \(rewind ? "set player position to 0" : "")
+                play
+            end if
+        end tell
+        """)
+    }
+
+    @discardableResult
+    private static func run(_ source: String) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", script]
+        p.arguments = ["-e", source]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
@@ -38,10 +82,7 @@ public enum MusicScripting {
         p.waitUntilExit()
         guard p.terminationStatus == 0,
               let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) else { return nil }
-        let parts = text.trimmingCharacters(in: .newlines).components(separatedBy: "\t")
-        guard parts.count == 4 else { return nil }
-        return CurrentTrack(persistentID: parts[0], trackClass: parts[1],
-                            sampleRate: Double(parts[2]) ?? 0, localPath: parts[3].isEmpty ? nil : parts[3])
+        return text.trimmingCharacters(in: .newlines)
     }
 
     /// playerInfo 알림의 PersistentID(부호 있는 정수)를 AppleScript 형식(16자리 hex)으로 바꾼다.

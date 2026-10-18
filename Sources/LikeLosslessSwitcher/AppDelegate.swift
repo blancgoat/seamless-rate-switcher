@@ -9,9 +9,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let historyLimit = 30
 
     private static let enabledKey = "autoSwitchEnabled"
+    private static let settleEnabledKey = "settleEnabled"
+    /// 전환 시 일시정지 후 추가 대기(ms). 인터페이스마다 클럭을 다시 잡는 시간이 달라 사용자가 정한다
+    private static let settleDelayKey = "settleDelayMs"
+    private static let sliderMaxMs = 10000.0
+    private static let inputMaxMs = 30000
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [Self.enabledKey: true])
+        UserDefaults.standard.register(defaults: [Self.enabledKey: true, Self.settleEnabledKey: true, Self.settleDelayKey: 500])
+        // 이전 버전은 -1을 "끄기"로 저장했다
+        if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
+            UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
+            UserDefaults.standard.set(500, forKey: Self.settleDelayKey)
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
@@ -19,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
 
         switcher.isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        applySettleDelay()
         switcher.onMessage = { [weak self] message in
             guard let self else { return }
             history.append((Date(), message))
@@ -84,6 +95,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggle.state = switcher.isEnabled ? .on : .off
         menu.addItem(toggle)
 
+        let settle = NSMenuItem(title: "전환 시 일시정지", action: #selector(toggleSettle), keyEquivalent: "")
+        settle.target = self
+        settle.state = settleEnabled ? .on : .off
+        settle.toolTip = "rate가 바뀔 때만 멈춥니다. 곡 시작 3초 안이면 처음부터 다시 재생합니다."
+        menu.addItem(settle)
+        if settleEnabled {
+            let sliderItem = NSMenuItem()
+            sliderItem.view = makeSettleSliderView()
+            menu.addItem(sliderItem)
+            let input = NSMenuItem(title: "    대기 시간 직접 입력…", action: #selector(inputSettleDelay), keyEquivalent: "")
+            input.target = self
+            menu.addItem(input)
+        }
+
         let login = NSMenuItem(title: "로그인 시 실행", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -120,6 +145,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switcher.isEnabled.toggle()
         UserDefaults.standard.set(switcher.isEnabled, forKey: Self.enabledKey)
         updateTitle()
+    }
+
+    // MARK: - 전환 시 일시정지
+
+    private var settleEnabled: Bool { UserDefaults.standard.bool(forKey: Self.settleEnabledKey) }
+    private var settleDelayMs: Int { UserDefaults.standard.integer(forKey: Self.settleDelayKey) }
+    private weak var settleLabel: NSTextField?
+
+    private func applySettleDelay() {
+        switcher.settleDelay = settleEnabled ? TimeInterval(settleDelayMs) / 1000 : nil
+    }
+
+    private func setSettleDelay(_ ms: Int) {
+        UserDefaults.standard.set(ms, forKey: Self.settleDelayKey)
+        applySettleDelay()
+        settleLabel?.stringValue = Self.settleLabelText(ms)
+    }
+
+    private static func settleLabelText(_ ms: Int) -> String {
+        "추가 대기  \(ms)ms" + (Double(ms) > sliderMaxMs ? "  (직접 입력값)" : "")
+    }
+
+    @objc private func toggleSettle() {
+        UserDefaults.standard.set(!settleEnabled, forKey: Self.settleEnabledKey)
+        applySettleDelay()
+    }
+
+    /// 메뉴 안에 들어가는 라벨 + 슬라이더 (0~10초, 100ms 단위). 드래그하는 동안 바로 반영된다.
+    private func makeSettleSliderView() -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 46))
+        let label = NSTextField(labelWithString: Self.settleLabelText(settleDelayMs))
+        label.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        label.textColor = .secondaryLabelColor
+        label.frame = NSRect(x: 34, y: 26, width: 230, height: 16)
+        let slider = NSSlider(value: min(Double(settleDelayMs), Self.sliderMaxMs), minValue: 0, maxValue: Self.sliderMaxMs,
+                              target: self, action: #selector(settleSliderChanged(_:)))
+        slider.isContinuous = true
+        slider.frame = NSRect(x: 30, y: 4, width: 236, height: 20)
+        view.addSubview(label)
+        view.addSubview(slider)
+        settleLabel = label
+        return view
+    }
+
+    @objc private func settleSliderChanged(_ sender: NSSlider) {
+        setSettleDelay(Int((sender.doubleValue / 100).rounded()) * 100)
+    }
+
+    @objc private func inputSettleDelay() {
+        let alert = NSAlert()
+        alert.messageText = "전환 후 추가 대기 시간"
+        alert.informativeText = "rate를 바꾼 뒤 장치가 변경을 확인하고 나서 이만큼 더 기다렸다가 재생합니다. (0~\(Self.inputMaxMs)ms)"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        field.stringValue = "\(settleDelayMs)"
+        field.placeholderString = "ms"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "취소")
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)  // 메뉴바 전용 앱이라 창을 앞으로 가져와야 입력 가능
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let ms = Int(field.stringValue.trimmingCharacters(in: .whitespaces)), (0...Self.inputMaxMs).contains(ms) else {
+            NSSound.beep()
+            return
+        }
+        setSettleDelay(ms)
     }
 
     @objc private func toggleLaunchAtLogin() {

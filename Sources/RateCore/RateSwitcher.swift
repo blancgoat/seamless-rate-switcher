@@ -34,7 +34,17 @@ public final class RateSwitcher {
         }
     }
 
+    /// rate를 바꿀 때 Music을 일시정지하고, 장치가 변경을 확인한 뒤 이 시간만큼 더 기다렸다가 재개한다.
+    /// 인터페이스가 클럭을 다시 잡는 시간은 Mac 쪽에 신호가 없어서 사용자가 정한다. nil이면 일시정지하지 않는다.
+    public var settleDelay: TimeInterval?
+
+    /// 일시정지 시점의 곡 위치가 이보다 앞이면 곡 처음으로 되돌린다 (감지 지연 동안 잘못 나간 앞부분 복구)
+    public var rewindThreshold: TimeInterval = 3
+
     private let tracker = MusicLogTracker()
+    private var switchGeneration = 0
+    private var heldPause: MusicScripting.PauseState?
+    private var rateConfirmed: (() -> Void)?
     private var logProcess: Process?
     private var lastRateWeSet: Double?
     private var lastPersistentID: String?
@@ -93,7 +103,7 @@ public final class RateSwitcher {
             return
         }
         guard isEnabled else {
-            onMessage?(.info("일시중지됨, rate \(Int(rate)) 적용 안 함  (\(reason))"))
+            onMessage?(.info("자동 전환 꺼짐, rate \(Int(rate)) 적용 안 함  (\(reason))"))
             return
         }
         guard let device = AudioDevice.defaultOutput else {
@@ -102,20 +112,86 @@ public final class RateSwitcher {
         }
         if device.nominalSampleRate == rate {
             onMessage?(.action("= rate \(Int(rate)) 유지  (\(device.name), \(reason))"))
+            // 이전 전환을 기다리는 도중 원래 rate로 돌아온 경우, 붙잡아 둔 일시정지를 풀어 준다
+            if heldPause != nil {
+                switchGeneration += 1
+                resumeHeld(generation: switchGeneration)
+            }
             return
         }
         guard device.supports(rate) else {
             onMessage?(.warning("\(device.name)는 \(Int(rate))을 지원하지 않음, 건너뜀"))
             return
         }
+        if let settleDelay {
+            switchWithPause(device: device, rate: rate, reason: reason, settleDelay: settleDelay)
+        } else {
+            applyRate(device: device, rate: rate, reason: reason)
+        }
+    }
+
+    @discardableResult
+    private func applyRate(device: AudioDevice, rate: Double, reason: String) -> Bool {
         lastRateWeSet = rate
         let status = device.setNominalSampleRate(rate)
         if status == noErr {
             onMessage?(.action("→ rate \(Int(rate))  (\(device.name), \(reason))"))
-        } else {
-            lastRateWeSet = nil
-            onMessage?(.warning("rate 변경 실패 OSStatus=\(status)"))
+            return true
         }
+        lastRateWeSet = nil
+        onMessage?(.warning("rate 변경 실패 OSStatus=\(status)"))
+        return false
+    }
+
+    /// 일시정지 → rate 변경 → 장치 확인 알림 (최대 2초) → settleDelay → 재개
+    private func switchWithPause(device: AudioDevice, rate: Double, reason: String, settleDelay: TimeInterval) {
+        switchGeneration += 1
+        let generation = switchGeneration
+        let started = Date()
+
+        let proceed = { [self] in
+            // 일시정지하는 동안 더 새로운 전환이 시작됐으면 그쪽에 맡긴다
+            guard generation == switchGeneration else { return }
+            var finished = false
+            let finish = { [self] (confirmed: Bool) in
+                guard !finished else { return }
+                finished = true
+                rateConfirmed = nil
+                let ms = Int(Date().timeIntervalSince(started) * 1000)
+                onMessage?(confirmed
+                    ? .info("장치 확인 \(ms)ms, \(Int(settleDelay * 1000))ms 대기 후 재개")
+                    : .warning("장치 확인 알림 없음 (\(ms)ms), \(Int(settleDelay * 1000))ms 대기 후 재개"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) { self.resumeHeld(generation: generation) }
+            }
+            rateConfirmed = { finish(true) }
+            guard applyRate(device: device, rate: rate, reason: reason) else {
+                rateConfirmed = nil
+                resumeHeld(generation: generation)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { finish(false) }
+        }
+
+        // 이미 이전 전환 때문에 멈춰 있으면 다시 멈출 필요 없음
+        if heldPause != nil {
+            proceed()
+            return
+        }
+        DispatchQueue.global().async {
+            let state = MusicScripting.pauseIfPlaying()
+            DispatchQueue.main.async {
+                if let state { self.heldPause = state }
+                proceed()
+            }
+        }
+    }
+
+    private func resumeHeld(generation: Int) {
+        guard generation == switchGeneration, let state = heldPause else { return }
+        heldPause = nil
+        let rewind = state.position < rewindThreshold
+        onMessage?(.info(rewind ? "재생 재개 (처음부터)" : "재생 재개"))
+        DispatchQueue.global().async { MusicScripting.resume(state, rewind: rewind) }
     }
 
     private func watchDefaultOutput() {
@@ -138,6 +214,7 @@ public final class RateSwitcher {
             let rate = device.nominalSampleRate
             if rate == lastRateWeSet {
                 lastRateWeSet = nil
+                rateConfirmed?()
             } else {
                 onMessage?(.warning("외부에서 rate 변경: \(Int(rate))  (\(device.name))"))
             }

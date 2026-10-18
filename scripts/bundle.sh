@@ -41,6 +41,8 @@ echo "생성됨: $APP (v$VERSION build $BUILD)"
 
 if [[ "${1:-}" == "--install" ]]; then
     pkill -x "$NAME" 2>/dev/null || true
+    # 이전 앱이 완전히 끝나기 전에 open하면 -600 에러가 난다
+    for _ in {1..50}; do pgrep -x "$NAME" >/dev/null || break; sleep 0.1; done
     rm -rf "/Applications/$NAME.app"
     cp -R "$APP" /Applications/
     open "/Applications/$NAME.app"

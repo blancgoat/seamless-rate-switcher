@@ -4,6 +4,7 @@ import RateCore
 // 사용법:
 //   switcher                 Music 로그를 실시간으로 읽고 곡이 바뀔 때 기본 출력 장치 rate를 맞춘다
 //   switcher --dry-run       판단만 출력하고 장치는 건드리지 않는다
+//   switcher --settle MS     rate를 바꿀 때 Music을 일시정지하고, 장치 확인 후 MS만큼 더 기다렸다가 재개
 //   switcher --replay FILE   capture.sh가 저장한 music.ndjson을 재생해 판단을 검증한다 (장치는 건드리지 않음)
 
 let args = CommandLine.arguments
@@ -20,6 +21,9 @@ let clock: DateFormatter = {
 var logTimestamp: String?
 
 let switcher = RateSwitcher(dryRun: dryRun)
+if let i = args.firstIndex(of: "--settle"), args.indices.contains(i + 1), let ms = Double(args[i + 1]) {
+    switcher.settleDelay = ms / 1000
+}
 switcher.onMessage = { message in
     let ts = logTimestamp.map { String($0.dropFirst(11).prefix(12)) } ?? clock.string(from: Date())
     switch message {
