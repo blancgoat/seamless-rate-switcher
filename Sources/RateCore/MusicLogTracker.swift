@@ -31,6 +31,7 @@ public final class MusicLogTracker {
     private var lastItemLogged: [String: String] = [:]   // player → 직전 로그의 item
     private var formats: [String: Format] = [:]          // "player|item" → format
     private var currentItem: [String: String] = [:]      // player → 현재 재생 item
+    private var leftItem: [String: String] = [:]         // player → 방금 떠난 item (전환 직후 그 곡의 정리 로그는 무시)
     private var pending: [String: String] = [:]          // player → 포맷을 기다리는 현재 item
     private var audioPlayers = Set<String>()             // AudioQueue를 만든 적 있는 플레이어 (나머지는 아트워크 영상 등)
 
@@ -70,6 +71,7 @@ public final class MusicLogTracker {
             // AVPlayer가 같은 전환을 여러 번 찍는 경우가 있어 중복은 무시
             guard currentItem[player] != to else { return nil }
             currentItem[player] = to
+            leftItem[player] = from
             pending[player] = nil
             // 로컬 파일 곡은 item 로그 없이 AudioQueue 로그만 찍힌다. 이전 곡 ID가 남아 있으면 그 곡 포맷을 덮어쓰므로 지운다.
             // (스트리밍 곡은 AudioQueue 직전에 항상 item 로그가 새로 찍힌다)
@@ -87,6 +89,10 @@ public final class MusicLogTracker {
         }
 
         if let m = Self.match(Self.itemLog, message) {
+            // 곡이 넘어간 직후에도 Music은 떠난 곡을 정리하는 로그를 남긴다. 이걸 직전 item으로 잡으면
+            // 다음 AudioQueue(특히 item 로그가 없는 로컬 파일)의 포맷을 떠난 곡의 것으로 잘못 기록하고,
+            // 지금 곡이 아니니 "다음 곡 미리 불러오기"로 착각할 수 있다.
+            guard m[1] != leftItem[m[0]] else { return nil }
             lastItemLogged[m[0]] = m[1]
         }
         return nil
