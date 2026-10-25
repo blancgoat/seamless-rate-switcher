@@ -50,7 +50,10 @@ public final class MusicLogTracker {
     public func handle(_ message: String) -> Decision? {
         if let m = Self.match(Self.audioQueue, message) {
             let player = m[0]
-            guard let item = lastItemLogged[player], let rate = Double(m[2]) else { return nil }
+            // 보통은 바로 앞 item 로그가 어느 곡의 AudioQueue인지 알려 준다. 파일 재생기로 재생되는 곡
+            // (로컬 파일, 다운로드·캐시된 Apple Music AAC 등)은 그 로그가 없으므로, 곡이 막 바뀌어
+            // 포맷을 기다리는 중이면 지금 곡의 것으로 본다 (다음 곡 미리 불러오기는 지금 곡 포맷을 안 뒤에 일어난다)
+            guard let item = lastItemLogged[player] ?? pending[player], let rate = Double(m[2]) else { return nil }
             let format = Format(codec: m[1], sampleRate: rate)
             audioPlayers.insert(player)
             if formats["\(player)|\(item)"] != format {
