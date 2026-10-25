@@ -27,7 +27,7 @@ if let i = args.firstIndex(of: "--settle"), args.indices.contains(i + 1), let ms
 switcher.onMessage = { message in
     let ts = logTimestamp.map { String($0.dropFirst(11).prefix(12)) } ?? clock.string(from: Date())
     switch message {
-    case let .info(text): print("\(ts)      \(text)")
+    case let .detail(text), let .info(text): print("\(ts)      \(text)")
     case let .action(text): print("\(ts)  \(text)")
     case let .warning(text): print("\(ts)  ! \(text)")
     }

@@ -7,8 +7,8 @@ import ServiceManagement
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSTextFieldDelegate {
     private let switcher = RateSwitcher()
     private var statusItem: NSStatusItem!
-    private var history: [(Date, RateSwitcher.Message)] = []
-    private let historyLimit = 30
+    private let activity = ActivityLog()
+    private lazy var activityWindow = ActivityWindowController(log: activity)
 
     private static let log = Logger(subsystem: "dev.blancgoat.SeamlessRateSwitcher", category: "switch")
     private static let settleEnabledKey = "settleEnabled"
@@ -40,19 +40,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             guard let self else { return }
             // 최근 기록과 같은 내용을 시스템 로그에도 남긴다 (log show --predicate 'subsystem == "dev.blancgoat.SeamlessRateSwitcher"')
             switch message {
+            case let .detail(text): Self.log.debug("\(text, privacy: .public)")
             case let .info(text): Self.log.info("\(text, privacy: .public)")
             case let .action(text): Self.log.notice("\(text, privacy: .public)")
             case let .warning(text): Self.log.error("\(text, privacy: .public)")
             }
-            history.append((Date(), message))
-            if history.count > historyLimit { history.removeFirst(history.count - historyLimit) }
+            activity.append(message)
         }
         switcher.onStatusChange = { [weak self] in self?.updateTitle() }
 
         do {
             try switcher.start()
         } catch {
-            history.append((Date(), .warning(L("Failed to start log stream: %@", error.localizedDescription))))
+            activity.append(.warning(L("Failed to start log stream: %@", error.localizedDescription)))
         }
         updateTitle()
     }
@@ -170,22 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let historyItem = NSMenuItem(title: L("Recent Activity"), action: nil, keyEquivalent: "")
-        let historyMenu = NSMenu()
-        let clock = DateFormatter()
-        clock.dateFormat = "HH:mm:ss"
-        for (date, message) in history.reversed() {
-            let text: String
-            switch message {
-            case let .info(t): text = "   \(t)"
-            case let .action(t): text = t
-            case let .warning(t): text = "⚠︎ \(t)"
-            }
-            historyMenu.addItem(disabled: "\(clock.string(from: date))  \(text)")
-        }
-        if history.isEmpty { historyMenu.addItem(disabled: L("None")) }
-        historyItem.submenu = historyMenu
-        menu.addItem(historyItem)
+        let activityItem = NSMenuItem(title: L("Activity…"), action: #selector(openActivity), keyEquivalent: "")
+        activityItem.target = self
+        menu.addItem(activityItem)
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: L("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -343,6 +330,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     @objc private func removeReadyScript() {
         setReadyScript(nil)
+    }
+
+    @objc private func openActivity() {
+        activityWindow.show()
     }
 
     @objc private func toggleLaunchAtLogin() {

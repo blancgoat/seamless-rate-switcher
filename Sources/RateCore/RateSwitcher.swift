@@ -9,7 +9,8 @@ import Foundation
 /// 모든 콜백과 상태 변경은 main 큐에서 일어난다.
 public final class RateSwitcher {
     public enum Message {
-        case info(String)      // 판단 과정 (포맷 기록, 곡 전환 등)
+        case detail(String)    // 진단용 세부 과정 (곡 전환, 포맷 기록, 재개 직전 곡 ID 등)
+        case info(String)      // 일시정지·재개, 스크립트 결과 등
         case action(String)    // rate 변경 / 유지
         case warning(String)   // 실패, 외부 변경 등
     }
@@ -83,19 +84,19 @@ public final class RateSwitcher {
             switch event {
             case let .formatLearned(player, item, format):
                 guard let self else { return }
-                onMessage?(.info(L("Format     P/%@ %@ = %@", player, item, format.description)))
+                onMessage?(.detail(L("Format     P/%@ %@ = %@", player, item, format.description)))
                 // 지금 재생 중인 곡이 아닌 곡의 포맷 = 다음 곡 미리 불러오기
                 if item != tracker.currentItem(of: player) {
                     upcomingPrepared(player: player, item: item, format: format)
                 }
             case let .currentItemChanged(player, from, to):
                 guard let self else { return }
-                onMessage?(.info(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
+                onMessage?(.detail(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
                 disarmEndWatch()
                 // 곡 끝 직전에 멈췄는데 그사이 Music이 스스로 다음 곡으로 넘어갔다면, 재개할 때 또 넘기면 안 된다
                 if resumeAction == .advance { resumeAction = .rewind }
             case let .waitingForFormat(player, item):
-                self?.onMessage?(.info(L("Waiting    P/%@ %@", player, item)))
+                self?.onMessage?(.detail(L("Waiting    P/%@ %@", player, item)))
             }
         }
     }
@@ -293,7 +294,7 @@ public final class RateSwitcher {
         }
         DispatchQueue.global(qos: .userInteractive).async {
             let detail = MusicScripting.resume(state)
-            DispatchQueue.main.async { self.onMessage?(.info("  " + detail)) }
+            DispatchQueue.main.async { self.onMessage?(.detail(detail)) }
         }
     }
 

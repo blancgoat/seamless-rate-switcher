@@ -6,8 +6,6 @@
 "Pause While Switching" = "전환 시 일시정지";
 "Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends." = "샘플레이트가 바뀔 때만 멈춥니다. 다음 곡의 샘플레이트를 미리 알면 지금 곡이 끝나기 직전에 멈춥니다.";
 "Launch at Login" = "로그인 시 실행";
-"Recent Activity" = "최근 기록";
-"None" = "없음";
 "Quit" = "종료";
 
 /* 알림창 */
@@ -56,3 +54,8 @@
 "Ready script failed (%@), resuming now" = "준비 확인 스크립트 실패 (%@), 바로 재생";
 "Last run failed: %@" = "마지막 실행 실패: %@";
 "Too close to the end, switching when the track changes" = "곡 끝이 너무 가까워서 곡이 바뀔 때 전환";
+"Activity" = "활동 기록";
+"Activity…" = "활동 기록…";
+"Show Details" = "자세히";
+"Clear" = "지우기";
+"Keep on Top" = "항상 위";
