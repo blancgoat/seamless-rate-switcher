@@ -119,7 +119,7 @@ public final class MusicLogTracker {
 
 public enum MusicLog {
     /// log stream 필터. 위 세 종류 로그와 곡 전환 효과(AutoMix·크로스페이드) 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
-    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")) OR (subsystem == "com.apple.Sonic" AND eventMessage CONTAINS "Transition Generation Complete") OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "overlappedPlaybackEndTime" OR eventMessage CONTAINS "transition duration:" OR eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
+    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")) OR (subsystem == "com.apple.Sonic" AND (eventMessage CONTAINS "Transition Generation Complete" OR eventMessage CONTAINS "resetting to .invalid")) OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "overlappedPlaybackEndTime" OR eventMessage CONTAINS "transition duration:" OR eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
 
     /// 곡 전환 효과(곡 사이를 겹쳐 섞는 AutoMix·크로스페이드) 로그.
     /// - 전환 계획 (둘 다): 다음 곡을 준비하면 `TRANSITION: Setting overlappedPlaybackEndTime to 206.773000 on I/LWW`(지금 곡이
@@ -127,10 +127,14 @@ public enum MusicLog {
     /// - AutoMix는 `[ALC] - Transition Generation Complete:` 아래에 겹치기 시작 위치(Outgoing Start / Overlap Start)를 직접 남긴다.
     /// - 전환 시작: `STATE MACHINE: Enter state: OverlappedTransitionState` 직후에 currentItem이 다음 곡으로 바뀐다.
     /// - 전환 끝: `Exit state: OverlappedTransitionState`, `ITEM TRANSITION END` (취소될 때도 남는다).
+    /// - 계획 취소: 곡 전환 효과를 끄면(또는 일시정지·건너뛰기로 다시 계획할 때) `overlappedPlaybackEndTime had been set on
+    ///   ... - resetting to .invalid`를 남긴다. 다시 계획하면 새 계획 로그가 뒤따른다.
+    ///   (`ITEM TRANSITION CANCELLED`도 남지만 이벤트 로그라 1초 가까이 늦게 올 때가 있어, 새 계획을 지울 수 있어서 쓰지 않는다)
     public enum Transition: Equatable {
         case planned(start: TimeInterval)
         case overlapEnd(TimeInterval)
         case duration(TimeInterval)
+        case cancelled
         case began
         case ended
     }
@@ -149,6 +153,7 @@ public enum MusicLog {
             }
             return starts.min().map { .planned(start: $0) }
         }
+        if message.contains("resetting to .invalid") { return .cancelled }
         if let value = firstNumber(overlapEnd, message) { return .overlapEnd(value) }
         if let value = firstNumber(duration, message) { return .duration(value) }
         if message.contains("Enter state: OverlappedTransitionState") { return .began }

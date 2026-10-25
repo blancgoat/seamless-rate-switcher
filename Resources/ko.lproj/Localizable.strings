@@ -63,3 +63,4 @@
 "Transition began" = "전환 효과  시작";
 "Transition ended" = "전환 효과  끝";
 "Pausing %ldms before the song transition" = "곡 전환 효과 %ldms 전 일시정지";
+"Transition cancelled" = "전환 효과  취소";

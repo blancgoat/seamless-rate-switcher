@@ -339,6 +339,11 @@ public final class RateSwitcher {
             overlapEnd = end
         case let .duration(duration):
             overlapDuration = duration
+        case .cancelled:
+            // 곡 전환 효과를 끄면 계획이 취소된다. 남겨 두면 겹치지도 않는데 곡 끝보다 일찍 멈춘다
+            plannedStart = nil
+            overlapEnd = nil
+            overlapDuration = nil
         case .began:
             onMessage?(.detail(L("Transition began")))
             inTransition = true
@@ -351,8 +356,16 @@ public final class RateSwitcher {
         case .ended:
             transitionEnded()
         }
-        if let start = transitionStart, start != before {
+        guard transitionStart != before else { return }
+        if let start = transitionStart {
             onMessage?(.detail(L("Transition planned at %@", Self.clock(start))))
+        } else {
+            onMessage?(.detail(L("Transition cancelled")))
+        }
+        // 이미 잡아 둔 일시정지 시각을 새 계획에 맞춰 다시 정한다
+        if upcoming != nil {
+            endWatchGeneration += 1
+            checkEnd(generation: endWatchGeneration)
         }
     }
 
