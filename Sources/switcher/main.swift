@@ -44,7 +44,8 @@ if let replayPath {
     for line in text.split(separator: "\n") {
         // 실시간 predicate와 같은 범위만 본다
         guard let entry = MusicLog.parse(ndjsonLine: String(line)),
-              entry.subsystem == "com.apple.coremedia" else { continue }
+              ["com.apple.coremedia", "com.apple.Sonic", "com.apple.amp.mediaplaybackcore"].contains(entry.subsystem)
+        else { continue }
         logTimestamp = entry.timestamp
         switcher.feed(logMessage: entry.message)
     }

@@ -58,3 +58,8 @@
 "Show Details" = "자세히";
 "Clear" = "지우기";
 "Keep on Top" = "항상 위";
+"AutoMix transition in progress, switching after it ends" = "AutoMix 전환 중이라 전환이 끝난 뒤 샘플레이트 변경";
+"AutoMix    transition planned at %@" = "AutoMix    전환 예정 %@";
+"AutoMix    transition began" = "AutoMix    전환 시작";
+"AutoMix    transition ended" = "AutoMix    전환 끝";
+"Pausing %ldms before the AutoMix transition" = "AutoMix 전환 %ldms 전 일시정지";

@@ -28,7 +28,7 @@ public final class MusicLogTracker {
 
     public var onEvent: ((Event) -> Void)?
 
-    private var lastItemLogged: [String: String] = [:]   // player → 직전 로그의 item
+    private var lastItemLogged: [String: String] = [:]   // player(하위 플레이어 포함, 예: WX.2) → 직전 로그의 item
     private var formats: [String: Format] = [:]          // "player|item" → format
     private var currentItem: [String: String] = [:]      // player → 현재 재생 item
     private var leftItem: [String: String] = [:]         // player → 방금 떠난 item (전환 직후 그 곡의 정리 로그는 무시)
@@ -39,21 +39,25 @@ public final class MusicLogTracker {
 
     public func currentItem(of player: String) -> String? { currentItem[player] }
 
-    // [0x74c05bf400|P/WX] <0x74b0940000|I/LUM.01>
-    private static let itemLog = try! NSRegularExpression(pattern: #"\|P/(\w+)\] <0x[0-9a-f]+\|(I/[\w.]+)>"#)
-    // RP/WX.26 Creating AudioQueue with format:'qlac', framesPerPacket:4096, sampleRate:44100
-    private static let audioQueue = try! NSRegularExpression(pattern: #"RP/(\w+)\.\d+ Creating AudioQueue with format:'([^']+)'.*?sampleRate:(\d+(?:\.\d+)?)"#)
+    // AutoMix 중에는 플레이어 안에 겹치기용 하위 플레이어(P/WX.2)가 생겨서 곡이 그쪽에서 재생된다.
+    // 하위 플레이어는 자기 item 로그와 AudioQueue(RP/WX.2.16)를 따로 남기므로, 직전 item은 하위 플레이어별로 따로 기억하고
+    // 곡 전환·포맷은 바깥 플레이어(WX) 기준으로 묶는다.
+    // [0x74c05bf400|P/WX] <0x74b0940000|I/LUM.01>, [0x7b5d978000|P/WX.2] <0x7b58af5c00|I/GOG.01>
+    private static let itemLog = try! NSRegularExpression(pattern: #"\|P/(\w+(?:\.\d+)*)\] <0x[0-9a-f]+\|(I/[\w.]+)>"#)
+    // RP/WX.26 Creating AudioQueue with format:'qlac', framesPerPacket:4096, sampleRate:44100 (하위 플레이어: RP/WX.2.16)
+    private static let audioQueue = try! NSRegularExpression(pattern: #"RP/(\w+(?:\.\d+)*)\.\d+ Creating AudioQueue with format:'([^']+)'.*?sampleRate:(\d+(?:\.\d+)?)"#)
     // <P/WX|0x74b58ab380> currentItem KVO: updating current item from I/LUM.01 to I/XKF.01
     private static let currentItemChange = try! NSRegularExpression(pattern: #"<P/(\w+)\|0x[0-9a-f]+> currentItem KVO: updating current item from (\S+) to (\S+)"#)
 
     /// coremedia 로그 메시지 한 줄. 장치 rate를 바꿔야 하면 Decision을 돌려준다.
     public func handle(_ message: String) -> Decision? {
         if let m = Self.match(Self.audioQueue, message) {
-            let player = m[0]
+            let subPlayer = m[0]
+            let player = Self.outerPlayer(subPlayer)
             // 보통은 바로 앞 item 로그가 어느 곡의 AudioQueue인지 알려 준다. 파일 재생기로 재생되는 곡
             // (로컬 파일, 다운로드·캐시된 Apple Music AAC 등)은 그 로그가 없으므로, 곡이 막 바뀌어
             // 포맷을 기다리는 중이면 지금 곡의 것으로 본다 (다음 곡 미리 불러오기는 지금 곡 포맷을 안 뒤에 일어난다)
-            guard let item = lastItemLogged[player] ?? pending[player], let rate = Double(m[2]) else { return nil }
+            guard let item = lastItemLogged[subPlayer] ?? pending[player], let rate = Double(m[2]) else { return nil }
             let format = Format(codec: m[1], sampleRate: rate)
             audioPlayers.insert(player)
             if formats["\(player)|\(item)"] != format {
@@ -78,7 +82,7 @@ public final class MusicLogTracker {
             pending[player] = nil
             // 로컬 파일 곡은 item 로그 없이 AudioQueue 로그만 찍힌다. 이전 곡 ID가 남아 있으면 그 곡 포맷을 덮어쓰므로 지운다.
             // (스트리밍 곡은 AudioQueue 직전에 항상 item 로그가 새로 찍힌다)
-            lastItemLogged[player] = nil
+            lastItemLogged = lastItemLogged.filter { Self.outerPlayer($0.key) != player }
             let isAudio = audioPlayers.contains(player)
             if isAudio { onEvent?(.currentItemChanged(player: player, from: from, to: to)) }
             guard let to else { return nil }
@@ -95,10 +99,15 @@ public final class MusicLogTracker {
             // 곡이 넘어간 직후에도 Music은 떠난 곡을 정리하는 로그를 남긴다. 이걸 직전 item으로 잡으면
             // 다음 AudioQueue(특히 item 로그가 없는 로컬 파일)의 포맷을 떠난 곡의 것으로 잘못 기록하고,
             // 지금 곡이 아니니 "다음 곡 미리 불러오기"로 착각할 수 있다.
-            guard m[1] != leftItem[m[0]] else { return nil }
+            guard m[1] != leftItem[Self.outerPlayer(m[0])] else { return nil }
             lastItemLogged[m[0]] = m[1]
         }
         return nil
+    }
+
+    /// "WX.2" → "WX"
+    private static func outerPlayer(_ player: String) -> String {
+        String(player.prefix { $0 != "." })
     }
 
     private static func match(_ regex: NSRegularExpression, _ s: String) -> [String]? {
@@ -109,8 +118,36 @@ public final class MusicLogTracker {
 }
 
 public enum MusicLog {
-    /// log stream 필터. 위 세 종류 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
-    public static let predicate = #"process == "Music" AND subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")"#
+    /// log stream 필터. 위 세 종류 로그와 AutoMix 전환 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
+    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")) OR (subsystem == "com.apple.Sonic" AND eventMessage CONTAINS "Transition Generation Complete") OR (subsystem == "com.apple.amp.mediaplaybackcore" AND ((eventMessage CONTAINS "_MPCPlaybackEnginePlayer" AND eventMessage CONTAINS "smartTransition") OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
+
+    /// AutoMix(곡 사이를 겹쳐 섞는 전환) 로그.
+    /// - 전환 계획: 다음 곡을 준비하면 `[ALC] - Transition Generation Complete:` 아래에 지금 곡의 어디서부터
+    ///   겹치기 시작하는지(Outgoing Start / Overlap Start, 지금 곡 기준 시각)를 남긴다. 실제 전환보다 10초쯤 먼저 온다.
+    /// - 전환 시작: `_MPCPlaybackEnginePlayer ... - smartTransitionWillBegin -` 직후에 currentItem이 다음 곡으로 바뀐다.
+    /// - 전환 끝: `- smartTransitionDidEnd -`, 취소되면 `ITEM TRANSITION END`만 남는다 (완료 때도 남는다).
+    public enum Transition: Equatable {
+        case planned(start: TimeInterval)
+        case began
+        case ended
+    }
+
+    // * Outgoing Start:   (sourceTime: 3:24.77, targetTime: 3:24.77)
+    private static let transitionStart = try! NSRegularExpression(pattern: #"\* (?:Outgoing|Overlap) Start:\s+\(sourceTime: (?:(\d+):)?(\d+):(\d+(?:\.\d+)?)"#)
+
+    public static func transition(_ message: String) -> Transition? {
+        if message.contains("Transition Generation Complete") {
+            let range = NSRange(message.startIndex..., in: message)
+            let starts = transitionStart.matches(in: message, range: range).map { match -> TimeInterval in
+                let part = { (i: Int) in Range(match.range(at: i), in: message).flatMap { Double(message[$0]) } ?? 0 }
+                return part(1) * 3600 + part(2) * 60 + part(3)
+            }
+            return starts.min().map { .planned(start: $0) }
+        }
+        if message.contains("- smartTransitionWillBegin -") { return .began }
+        if message.contains("- smartTransitionDidEnd -") || message.contains("ITEM TRANSITION END") { return .ended }
+        return nil
+    }
 
     public struct Entry {
         public let timestamp: String

@@ -70,6 +70,14 @@ public final class RateSwitcher {
     private var upcoming: (player: String, item: String, format: MusicLogTracker.Format)?
     private var endWatchGeneration = 0
 
+    /// AutoMix가 지금 곡의 이 위치부터 다음 곡과 겹치기 시작한다 (전환 계획 로그). 곡 끝 대신 여기 직전에 멈춘다.
+    private var transitionStart: TimeInterval?
+    /// AutoMix 전환이 진행 중. 이때 일시정지하면 Music이 전환을 취소하고 이전 곡을 다시 불러오며 꼬이므로,
+    /// 그동안 필요해진 rate 변경은 전환이 끝난 뒤로 미룬다.
+    private var inTransition = false
+    private var transitionGeneration = 0
+    private var afterTransition: (rate: Double, reason: String)?
+
     private var logProcess: Process?
     private var lastRateWeSet: Double?
     private var lastPersistentID: String?
@@ -93,6 +101,7 @@ public final class RateSwitcher {
                 guard let self else { return }
                 onMessage?(.detail(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
                 disarmEndWatch()
+                transitionStart = nil  // 전환 계획은 떠난 곡의 것이다
                 // 곡 끝 직전에 멈췄는데 그사이 Music이 스스로 다음 곡으로 넘어갔다면, 재개할 때 또 넘기면 안 된다
                 if resumeAction == .advance { resumeAction = .rewind }
             case let .waitingForFormat(player, item):
@@ -105,10 +114,20 @@ public final class RateSwitcher {
 
     /// coremedia 로그 메시지 한 줄. 실시간 수신과 --replay가 같이 쓴다.
     public func feed(logMessage: String) {
+        if let transition = MusicLog.transition(logMessage) {
+            handle(transition)
+            return
+        }
         guard let decision = tracker.handle(logMessage),
               case let .switchTo(player, item, format) = decision else { return }
+        let reason = "P/\(player) \(item) \(format.codec)"
+        if inTransition && settleDelay != nil && AudioDevice.defaultOutput?.nominalSampleRate != format.sampleRate {
+            afterTransition = (format.sampleRate, reason)
+            onMessage?(.info(L("AutoMix transition in progress, switching after it ends")))
+            return
+        }
         // 곡이 바뀐 직후의 판단이므로 멈췄다면 처음부터 다시 재생
-        setRate(format.sampleRate, reason: "P/\(player) \(item) \(format.codec)", then: .rewind)
+        setRate(format.sampleRate, reason: reason, then: .rewind)
     }
 
     public func start() throws {
@@ -299,6 +318,41 @@ public final class RateSwitcher {
         }
     }
 
+    // MARK: - AutoMix
+
+    private func handle(_ transition: MusicLog.Transition) {
+        switch transition {
+        case let .planned(start):
+            transitionStart = start
+            onMessage?(.detail(L("AutoMix    transition planned at %@", Self.clock(start))))
+        case .began:
+            onMessage?(.detail(L("AutoMix    transition began")))
+            inTransition = true
+            transitionGeneration += 1
+            let generation = transitionGeneration
+            // 끝 로그를 놓쳐도 붙잡히지 않게 (AutoMix 전환은 길어도 30초를 넘지 않았다)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [self] in
+                if generation == transitionGeneration { transitionEnded() }
+            }
+        case .ended:
+            transitionEnded()
+        }
+    }
+
+    private func transitionEnded() {
+        guard inTransition else { return }
+        inTransition = false
+        transitionGeneration += 1
+        onMessage?(.detail(L("AutoMix    transition ended")))
+        guard let pending = afterTransition else { return }
+        afterTransition = nil
+        setRate(pending.rate, reason: pending.reason, then: .rewind)
+    }
+
+    private static func clock(_ seconds: TimeInterval) -> String {
+        String(format: "%d:%05.2f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
+    }
+
     // MARK: - 곡 끝 직전 일시정지
 
     /// 다음 곡의 rate가 지금과 다르면, 현재 곡이 끝나기 직전에 멈추도록 감시를 건다.
@@ -335,7 +389,9 @@ public final class RateSwitcher {
             DispatchQueue.main.async { [self] in
                 guard generation == endWatchGeneration, let upcoming else { return }
                 guard state == .playing, let position, let finish else { return recheck(1) }
-                let remaining = finish - position
+                // AutoMix는 곡 끝보다 먼저 다음 곡을 겹치기 시작하므로, 그 전에 멈춰야 전환이 시작되지 않는다
+                let overlaps = transitionStart.map { $0 > position && $0 < finish } ?? false
+                let remaining = (overlaps ? transitionStart! : finish) - position
                 if remaining > preEndLead + 0.5 {
                     recheck(min(remaining - preEndLead - 0.4, 5))
                     return
@@ -349,7 +405,9 @@ public final class RateSwitcher {
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(remaining - preEndLead, 0)) { [self] in
                     guard generation == endWatchGeneration, settleDelay != nil else { return }
                     disarmEndWatch()
-                    onMessage?(.info(L("Pausing %ldms before the end", Int(min(remaining, preEndLead) * 1000))))
+                    let lead = Int(min(remaining, preEndLead) * 1000)
+                    onMessage?(.info(overlaps ? L("Pausing %ldms before the AutoMix transition", lead)
+                                              : L("Pausing %ldms before the end", lead)))
                     let format = upcoming.format
                     setRate(format.sampleRate, reason: "P/\(upcoming.player) \(upcoming.item) \(format.codec)", then: .advance)
                 }
