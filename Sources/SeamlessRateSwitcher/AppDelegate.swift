@@ -40,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             guard let self else { return }
             // 최근 기록과 같은 내용을 시스템 로그에도 남긴다 (log show --predicate 'subsystem == "dev.blancgoat.SeamlessRateSwitcher"')
             switch message {
-            case let .detail(text): Self.log.debug("\(text, privacy: .public)")
+            // debug 단계는 디스크에 남지 않아 나중에 원인을 볼 수 없으므로 세부 기록도 info로 남긴다
+            case let .detail(text): Self.log.info("\(text, privacy: .public)")
             case let .info(text): Self.log.info("\(text, privacy: .public)")
             case let .action(text): Self.log.notice("\(text, privacy: .public)")
             case let .warning(text): Self.log.error("\(text, privacy: .public)")

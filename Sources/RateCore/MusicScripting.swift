@@ -72,19 +72,21 @@ public enum MusicScripting {
         return (PauseState(persistentID: MusicEvents.currentTrackPersistentID, action: action), attempts, paused)
     }
 
-    /// 다시 재생한다. 멈췄던 곡이 그대로면 action에 따라 다음 곡으로 넘기거나 처음으로 되돌린다.
+    /// 다시 재생한다. rewind는 지금 곡을 처음으로 되돌린다 (곡이 막 바뀌었다는 판단이라, 붙잡는 동안 다른 곡으로
+    /// 넘어갔어도 그 곡을 처음부터 듣는 게 맞다). advance는 멈췄던 곡이 그대로일 때만 넘긴다 (두 번 넘기지 않게).
     /// 진단용으로 무엇을 했는지 돌려준다.
     @discardableResult
     public static func resume(_ state: PauseState) -> String {
         let currentID = MusicEvents.currentTrackPersistentID
         let position = MusicEvents.playerPosition
         var did = "play"
-        if let id = state.persistentID, currentID == id {
-            switch state.action {
-            case .advance: MusicEvents.nextTrack(); did = "next+play"
-            case .rewind: MusicEvents.setPlayerPosition(0); did = "rewind+play"
-            case .resume: break
-            }
+        switch state.action {
+        case .advance:
+            if let id = state.persistentID, currentID == id { MusicEvents.nextTrack(); did = "next+play" }
+        case .rewind:
+            MusicEvents.setPlayerPosition(0); did = "rewind+play"
+        case .resume:
+            break
         }
         MusicEvents.play()
         return "paused id=\(state.persistentID ?? "nil") now id=\(currentID ?? "nil") pos=\(position.map { String(format: "%.2f", $0) } ?? "nil") → \(did)"

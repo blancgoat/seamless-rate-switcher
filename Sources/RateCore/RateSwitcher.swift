@@ -220,10 +220,11 @@ public final class RateSwitcher {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { finish(false) }
         }
 
-        // 이미 이전 전환 때문에 멈춰 있으면 다시 멈출 필요 없음.
-        // 사용자가 일시정지해 둔 상태도 건너뛰되, 곡이 막 바뀐 경우(rewind/advance)는 재생이 시작되는 중이라 반드시 멈춘다.
-        // (멈춰 있던 상태에서 새 곡을 재생하면 "Playing" 알림이 포맷 로그보다 늦게 와서 lastPlayerState가 아직 "Paused"다)
-        if heldPause != nil || (action == .resume && lastPlayerState == "Paused") {
+        // 이미 이전 전환 때문에 멈춰 있거나 사용자가 일시정지해 둔 상태면 멈출 필요 없다.
+        // 단, 곡이 막 바뀐 경우(rewind/advance)는 재생이 시작되는 중이라 반드시 멈춘다:
+        // - 멈춰 있던 상태에서 새 곡을 재생하면 "Playing" 알림이 포맷 로그보다 늦게 와서 lastPlayerState가 아직 "Paused"다
+        // - 붙잡아 둔 동안 사용자가 다른 곡으로 넘기면 Music은 그 곡을 바로 재생한다
+        if action == .resume && (heldPause != nil || lastPlayerState == "Paused") {
             proceed()
             return
         }
