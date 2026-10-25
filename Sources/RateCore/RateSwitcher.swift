@@ -57,6 +57,10 @@ public final class RateSwitcher {
 
     /// 샘플레이트를 바꾸느라 앱이 Music을 일시정지해 둔 동안 true (메뉴바에 쉼표 표시용)
     public var isHoldingPlayback: Bool { heldPause != nil }
+
+    /// 재개할 때 할 일. 가장 최근 전환이 정한 값이고, 붙잡는 동안 곡이 실제로 바뀌면 advance → rewind로 바뀐다.
+    /// (일시정지 결과는 늦게 돌아올 수 있어서, 결과에 담긴 action 대신 이 값을 따른다)
+    private var resumeAction: MusicScripting.ResumeAction = .resume
     /// 일시정지 → rate 변경 → 대기 → 재개 흐름이 진행 중
     private var switchInFlight = false
     private var rateConfirmed: (() -> Void)?
@@ -85,8 +89,11 @@ public final class RateSwitcher {
                     upcomingPrepared(player: player, item: item, format: format)
                 }
             case let .currentItemChanged(player, from, to):
-                self?.onMessage?(.info(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
-                self?.disarmEndWatch()
+                guard let self else { return }
+                onMessage?(.info(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
+                disarmEndWatch()
+                // 곡 끝 직전에 멈췄는데 그사이 Music이 스스로 다음 곡으로 넘어갔다면, 재개할 때 또 넘기면 안 된다
+                if resumeAction == .advance { resumeAction = .rewind }
             case let .waitingForFormat(player, item):
                 self?.onMessage?(.info(L("Waiting    P/%@ %@", player, item)))
             }
@@ -177,6 +184,7 @@ public final class RateSwitcher {
         let generation = switchGeneration
         let started = Date()
         switchInFlight = true
+        resumeAction = action
         disarmEndWatch()
         runningReadyScript?.cancel()
         runningReadyScript = nil
@@ -226,7 +234,10 @@ public final class RateSwitcher {
                 self.onMessage?(result.paused
                     ? .info(L("Paused in %ldms (%ld tries)", ms, result.attempts))
                     : .warning(L("Couldn’t confirm pause in %ldms (%ld tries)", ms, result.attempts)))
-                self.heldPause = result.state
+                // 더 새로운 전환이 이미 붙잡아 둔 상태를, 늦게 돌아온 이전 일시정지 결과로 덮어쓰지 않는다
+                if self.heldPause == nil || generation == self.switchGeneration {
+                    self.heldPause = result.state
+                }
                 proceed()
             }
         }
@@ -272,8 +283,9 @@ public final class RateSwitcher {
     private func resumeHeld(generation: Int) {
         guard generation == switchGeneration else { return }
         switchInFlight = false
-        guard let state = heldPause else { return }
+        guard let held = heldPause else { return }
         heldPause = nil
+        let state = MusicScripting.PauseState(persistentID: held.persistentID, action: resumeAction)
         switch state.action {
         case .advance: onMessage?(.info(L("Resumed (next track)")))
         case .rewind: onMessage?(.info(L("Resumed (from the beginning)")))
@@ -324,6 +336,12 @@ public final class RateSwitcher {
                 let remaining = finish - position
                 if remaining > preEndLead + 0.5 {
                     recheck(min(remaining - preEndLead - 0.4, 5))
+                    return
+                }
+                // 다음 곡을 너무 늦게 알게 돼 곡 끝까지 거의 안 남았으면, 실제 곡 전환 때 처리한다
+                guard remaining >= 0.1 else {
+                    disarmEndWatch()
+                    onMessage?(.info(L("Too close to the end, switching when the track changes")))
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(remaining - preEndLead, 0)) { [self] in
