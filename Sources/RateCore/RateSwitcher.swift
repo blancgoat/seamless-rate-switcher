@@ -70,9 +70,16 @@ public final class RateSwitcher {
     private var upcoming: (player: String, item: String, format: MusicLogTracker.Format)?
     private var endWatchGeneration = 0
 
-    /// AutoMix가 지금 곡의 이 위치부터 다음 곡과 겹치기 시작한다 (전환 계획 로그). 곡 끝 대신 여기 직전에 멈춘다.
-    private var transitionStart: TimeInterval?
-    /// AutoMix 전환이 진행 중. 이때 일시정지하면 Music이 전환을 취소하고 이전 곡을 다시 불러오며 꼬이므로,
+    /// 곡 전환 효과(AutoMix·크로스페이드)의 계획: 지금 곡의 어디서부터 다음 곡과 겹치는지. 곡 끝 대신 여기 직전에 멈춘다.
+    /// AutoMix는 시작 위치를 직접 알려 주고(plannedStart), 둘 다 끝 위치와 겹치는 길이를 알려 준다.
+    private var plannedStart: TimeInterval?
+    private var overlapEnd: TimeInterval?
+    private var overlapDuration: TimeInterval?
+    private var transitionStart: TimeInterval? {
+        let fromEnd = overlapEnd.flatMap { end in overlapDuration.map { end - $0 } }
+        return [plannedStart, fromEnd].compactMap { $0 }.min()
+    }
+    /// 곡 전환 효과가 진행 중. 이때 일시정지하면 Music이 전환을 취소하고 이전 곡을 다시 불러오며 꼬이므로,
     /// 그동안 필요해진 rate 변경은 전환이 끝난 뒤로 미룬다.
     private var inTransition = false
     private var transitionGeneration = 0
@@ -101,7 +108,10 @@ public final class RateSwitcher {
                 guard let self else { return }
                 onMessage?(.detail(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
                 disarmEndWatch()
-                transitionStart = nil  // 전환 계획은 떠난 곡의 것이다
+                // 전환 계획은 떠난 곡의 것이다
+                plannedStart = nil
+                overlapEnd = nil
+                overlapDuration = nil
                 // 곡 끝 직전에 멈췄는데 그사이 Music이 스스로 다음 곡으로 넘어갔다면, 재개할 때 또 넘기면 안 된다
                 if resumeAction == .advance { resumeAction = .rewind }
             case let .waitingForFormat(player, item):
@@ -123,7 +133,7 @@ public final class RateSwitcher {
         let reason = "P/\(player) \(item) \(format.codec)"
         if inTransition && settleDelay != nil && AudioDevice.defaultOutput?.nominalSampleRate != format.sampleRate {
             afterTransition = (format.sampleRate, reason)
-            onMessage?(.info(L("AutoMix transition in progress, switching after it ends")))
+            onMessage?(.info(L("Song transition in progress, switching after it ends")))
             return
         }
         // 곡이 바뀐 직후의 판단이므로 멈췄다면 처음부터 다시 재생
@@ -318,24 +328,31 @@ public final class RateSwitcher {
         }
     }
 
-    // MARK: - AutoMix
+    // MARK: - 곡 전환 효과 (AutoMix·크로스페이드)
 
     private func handle(_ transition: MusicLog.Transition) {
+        let before = transitionStart
         switch transition {
         case let .planned(start):
-            transitionStart = start
-            onMessage?(.detail(L("AutoMix    transition planned at %@", Self.clock(start))))
+            plannedStart = start
+        case let .overlapEnd(end):
+            overlapEnd = end
+        case let .duration(duration):
+            overlapDuration = duration
         case .began:
-            onMessage?(.detail(L("AutoMix    transition began")))
+            onMessage?(.detail(L("Transition began")))
             inTransition = true
             transitionGeneration += 1
             let generation = transitionGeneration
-            // 끝 로그를 놓쳐도 붙잡히지 않게 (AutoMix 전환은 길어도 30초를 넘지 않았다)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [self] in
+            // 끝 로그를 놓쳐도 붙잡히지 않게 (AutoMix 전환은 최대 60초)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 90) { [self] in
                 if generation == transitionGeneration { transitionEnded() }
             }
         case .ended:
             transitionEnded()
+        }
+        if let start = transitionStart, start != before {
+            onMessage?(.detail(L("Transition planned at %@", Self.clock(start))))
         }
     }
 
@@ -343,7 +360,7 @@ public final class RateSwitcher {
         guard inTransition else { return }
         inTransition = false
         transitionGeneration += 1
-        onMessage?(.detail(L("AutoMix    transition ended")))
+        onMessage?(.detail(L("Transition ended")))
         guard let pending = afterTransition else { return }
         afterTransition = nil
         setRate(pending.rate, reason: pending.reason, then: .rewind)
@@ -389,7 +406,7 @@ public final class RateSwitcher {
             DispatchQueue.main.async { [self] in
                 guard generation == endWatchGeneration, let upcoming else { return }
                 guard state == .playing, let position, let finish else { return recheck(1) }
-                // AutoMix는 곡 끝보다 먼저 다음 곡을 겹치기 시작하므로, 그 전에 멈춰야 전환이 시작되지 않는다
+                // AutoMix·크로스페이드는 곡 끝보다 먼저 다음 곡을 겹치기 시작하므로, 그 전에 멈춰야 전환이 시작되지 않는다
                 let overlaps = transitionStart.map { $0 > position && $0 < finish } ?? false
                 let remaining = (overlaps ? transitionStart! : finish) - position
                 if remaining > preEndLead + 0.5 {
@@ -406,7 +423,7 @@ public final class RateSwitcher {
                     guard generation == endWatchGeneration, settleDelay != nil else { return }
                     disarmEndWatch()
                     let lead = Int(min(remaining, preEndLead) * 1000)
-                    onMessage?(.info(overlaps ? L("Pausing %ldms before the AutoMix transition", lead)
+                    onMessage?(.info(overlaps ? L("Pausing %ldms before the song transition", lead)
                                               : L("Pausing %ldms before the end", lead)))
                     let format = upcoming.format
                     setRate(format.sampleRate, reason: "P/\(upcoming.player) \(upcoming.item) \(format.codec)", then: .advance)

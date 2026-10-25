@@ -118,35 +118,48 @@ public final class MusicLogTracker {
 }
 
 public enum MusicLog {
-    /// log stream 필터. 위 세 종류 로그와 AutoMix 전환 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
-    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")) OR (subsystem == "com.apple.Sonic" AND eventMessage CONTAINS "Transition Generation Complete") OR (subsystem == "com.apple.amp.mediaplaybackcore" AND ((eventMessage CONTAINS "_MPCPlaybackEnginePlayer" AND eventMessage CONTAINS "smartTransition") OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
+    /// log stream 필터. 위 세 종류 로그와 곡 전환 효과(AutoMix·크로스페이드) 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
+    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")) OR (subsystem == "com.apple.Sonic" AND eventMessage CONTAINS "Transition Generation Complete") OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "overlappedPlaybackEndTime" OR eventMessage CONTAINS "transition duration:" OR eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
 
-    /// AutoMix(곡 사이를 겹쳐 섞는 전환) 로그.
-    /// - 전환 계획: 다음 곡을 준비하면 `[ALC] - Transition Generation Complete:` 아래에 지금 곡의 어디서부터
-    ///   겹치기 시작하는지(Outgoing Start / Overlap Start, 지금 곡 기준 시각)를 남긴다. 실제 전환보다 10초쯤 먼저 온다.
-    /// - 전환 시작: `_MPCPlaybackEnginePlayer ... - smartTransitionWillBegin -` 직후에 currentItem이 다음 곡으로 바뀐다.
-    /// - 전환 끝: `- smartTransitionDidEnd -`, 취소되면 `ITEM TRANSITION END`만 남는다 (완료 때도 남는다).
+    /// 곡 전환 효과(곡 사이를 겹쳐 섞는 AutoMix·크로스페이드) 로그.
+    /// - 전환 계획 (둘 다): 다음 곡을 준비하면 `TRANSITION: Setting overlappedPlaybackEndTime to 206.773000 on I/LWW`(지금 곡이
+    ///   끝나는 위치)와 `| transition duration: 6.00`(겹치는 길이)을 남긴다. 겹치기 시작 = 끝 - 길이. 실제 전환보다 수십 초 먼저 온다.
+    /// - AutoMix는 `[ALC] - Transition Generation Complete:` 아래에 겹치기 시작 위치(Outgoing Start / Overlap Start)를 직접 남긴다.
+    /// - 전환 시작: `STATE MACHINE: Enter state: OverlappedTransitionState` 직후에 currentItem이 다음 곡으로 바뀐다.
+    /// - 전환 끝: `Exit state: OverlappedTransitionState`, `ITEM TRANSITION END` (취소될 때도 남는다).
     public enum Transition: Equatable {
         case planned(start: TimeInterval)
+        case overlapEnd(TimeInterval)
+        case duration(TimeInterval)
         case began
         case ended
     }
 
     // * Outgoing Start:   (sourceTime: 3:24.77, targetTime: 3:24.77)
-    private static let transitionStart = try! NSRegularExpression(pattern: #"\* (?:Outgoing|Overlap) Start:\s+\(sourceTime: (?:(\d+):)?(\d+):(\d+(?:\.\d+)?)"#)
+    private static let plannedStart = try! NSRegularExpression(pattern: #"\* (?:Outgoing|Overlap) Start:\s+\(sourceTime: (?:(\d+):)?(\d+):(\d+(?:\.\d+)?)"#)
+    private static let overlapEnd = try! NSRegularExpression(pattern: #"Setting overlappedPlaybackEndTime to (\d+(?:\.\d+)?)"#)
+    private static let duration = try! NSRegularExpression(pattern: #"\| transition duration: (\d+(?:\.\d+)?)"#)
 
     public static func transition(_ message: String) -> Transition? {
         if message.contains("Transition Generation Complete") {
             let range = NSRange(message.startIndex..., in: message)
-            let starts = transitionStart.matches(in: message, range: range).map { match -> TimeInterval in
+            let starts = plannedStart.matches(in: message, range: range).map { match -> TimeInterval in
                 let part = { (i: Int) in Range(match.range(at: i), in: message).flatMap { Double(message[$0]) } ?? 0 }
                 return part(1) * 3600 + part(2) * 60 + part(3)
             }
             return starts.min().map { .planned(start: $0) }
         }
-        if message.contains("- smartTransitionWillBegin -") { return .began }
-        if message.contains("- smartTransitionDidEnd -") || message.contains("ITEM TRANSITION END") { return .ended }
+        if let value = firstNumber(overlapEnd, message) { return .overlapEnd(value) }
+        if let value = firstNumber(duration, message) { return .duration(value) }
+        if message.contains("Enter state: OverlappedTransitionState") { return .began }
+        if message.contains("Exit state: OverlappedTransitionState") || message.contains("ITEM TRANSITION END") { return .ended }
         return nil
+    }
+
+    private static func firstNumber(_ regex: NSRegularExpression, _ s: String) -> Double? {
+        let range = NSRange(s.startIndex..., in: s)
+        guard let match = regex.firstMatch(in: s, range: range), let r = Range(match.range(at: 1), in: s) else { return nil }
+        return Double(s[r])
     }
 
     public struct Entry {
