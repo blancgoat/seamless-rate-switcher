@@ -1,6 +1,5 @@
 /* 메뉴 */
 "No output device" = "출력 장치 없음";
-"Last track: %@Hz · %@" = "마지막 곡: %1$@Hz · %2$@";
 "Stopped reading Music logs (please relaunch the app)" = "Music 로그 수신이 멈췄습니다 (앱을 다시 실행하세요)";
 "LosslessSwitcher is running. Both apps will fight over the sample rate" = "LosslessSwitcher가 실행 중입니다. 같이 쓰면 서로 샘플레이트를 바꿉니다";
 "Pause While Switching" = "전환 시 일시정지";

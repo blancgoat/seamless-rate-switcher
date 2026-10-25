@@ -136,9 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         } else {
             menu.addItem(disabled: L("No output device"))
         }
-        if let target = switcher.target {
-            menu.addItem(disabled: L("Last track: %@Hz · %@", Self.shortRate(target.sampleRate), target.reason))
-        }
         if !switcher.isRunning {
             menu.addItem(disabled: "⚠︎ " + L("Stopped reading Music logs (please relaunch the app)"))
         }
