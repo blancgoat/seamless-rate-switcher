@@ -1,5 +1,3 @@
-<img width="325" height="285" alt="image" src="https://github.com/user-attachments/assets/b7e48b4c-595a-495e-8881-1e0991790db0" />
-
 
 # Seamless Rate Switcher
 
@@ -36,12 +34,16 @@ Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 �
 
 ### 고정 시간
 
+<img width="296" height="258" alt="image" src="https://github.com/user-attachments/assets/8e52f98f-0eca-4c92-9c0e-278343a2ac76" />
+
 메뉴바 아이콘 → **Pause While Switching** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 5초). 옆 칸에 숫자를 넣고 Enter를 눌러 10ms 단위로 맞출 수도 있습니다.
 
 - 곡이 바뀔 때 **앞부분이 잘리면** 늘립니다.
 - **멈춰 있는 시간이 길게 느껴지면** 줄입니다.
 
 ### 준비 확인 스크립트
+
+<img width="334" height="235" alt="image" src="https://github.com/user-attachments/assets/2a7cfe7e-986d-4572-8908-0b8e52c5e820" />
 
 고정 시간 대신, 재생 장치(DAC)가 실제로 준비되는 순간에 바로 재생할 수도 있습니다.
 
@@ -63,6 +65,17 @@ example_ready_scripts/motu-ultralite-mk5/build.sh
 - 앱을 켜기 전부터 재생 중이던 Apple Music 곡은 다음 곡부터 샘플레이트가 맞춰집니다. 로컬 파일은 바로 맞춰집니다.
 - 출력 장치가 지원하지 않는 샘플레이트는 건너뜁니다.
 - Music 앱의 내부 로그를 읽어서 동작하기 때문에, macOS나 Music 앱 업데이트 후 동작하지 않을 수 있습니다.
+
+## 제거
+
+`Seamless Rate Switcher.app`을 휴지통으로 옮깁니다. macOS는 앱을 지워도 설정을 남겨 두니, 설정까지 지우려면 아래 명령을 실행하세요.
+
+```bash
+defaults delete dev.blancgoat.SeamlessRateSwitcher
+tccutil reset AppleEvents dev.blancgoat.SeamlessRateSwitcher
+```
+
+로그인 시 실행을 켜 두셨다면 **시스템 설정 → 일반 → 로그인 항목**에서도 지워 주세요.
 
 ## 라이선스
 

@@ -1,11 +1,4 @@
-<img width="297" height="261" alt="image" src="https://github.com/user-attachments/assets/1717475b-3746-4c6e-ac48-5dfc36da735e" />
-
-
-
 https://github.com/user-attachments/assets/e8b8c2ee-830b-4a9f-a59f-6587e2972266
-
-
-
 
 # Seamless Rate Switcher
 
@@ -41,6 +34,7 @@ Works with both Apple Music streaming and local files in your library.
 How long a DAC needs after a sample rate change before it can actually play sound depends on the device. Choose one of two ways.
 
 ### Fixed Time
+<img width="300" height="265" alt="image" src="https://github.com/user-attachments/assets/d0a3b393-0608-4113-b7e3-627028e27136" />
 
 Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 5 seconds). You can also type a number in the box next to it and press Enter to set it in 10 ms steps.
 
@@ -48,6 +42,7 @@ Set it with the slider under **Pause While Switching** in the menu bar icon, any
 - If **the pause feels too long**, decrease it.
 
 ### Ready Script
+<img width="321" height="232" alt="image" src="https://github.com/user-attachments/assets/e20f76a6-516d-4ad9-806c-d485eccc429f" />
 
 Instead of a fixed time, playback can resume the moment the playback device (DAC) is actually ready.
 
@@ -68,6 +63,17 @@ example_ready_scripts/motu-ultralite-mk5/build.sh
 - For an Apple Music track that was already playing before the app launched, the sample rate is matched starting from the next track. Local files are matched right away.
 - Sample rates the output device doesn't support are skipped.
 - The app works by reading the Music app's internal logs, so it may stop working after a macOS or Music update.
+
+## Uninstall
+
+Move `Seamless Rate Switcher.app` to the Trash. macOS keeps app settings after the app is deleted, so to remove them as well, run:
+
+```bash
+defaults delete dev.blancgoat.SeamlessRateSwitcher
+tccutil reset AppleEvents dev.blancgoat.SeamlessRateSwitcher
+```
+
+If you turned on Launch at Login, also remove it from **System Settings → General → Login Items**.
 
 ## License
 
