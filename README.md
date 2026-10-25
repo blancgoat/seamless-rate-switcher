@@ -62,6 +62,7 @@ example_ready_scripts/motu-ultralite-mk5/build.sh
 - **This app controls Music directly.** On tracks where the sample rate changes, Music pauses for a few seconds. This is expected: it is waiting for the DAC to finish switching to the new rate. **Please don't press play — just wait.** While waiting, the menu bar icon changes from a note (♫) to a rest (<img width="50" height="25" alt="image" src="https://github.com/user-attachments/assets/8fbe970e-9dab-426c-a7a4-7971d1e1f7e6" />), and changes back to a note when playback resumes.
 - For an Apple Music track that was already playing before the app launched, the sample rate is matched starting from the next track. Local files are matched right away.
 - Sample rates the output device doesn't support are skipped.
+- The app also works with Music's song transitions (AutoMix, Crossfade) turned on, but turning them off is recommended. On tracks where the sample rate changes, playback pauses right before the two tracks start to overlap, which can feel like the song stops at an awkward moment.
 - The app works by reading the Music app's internal logs, so it may stop working after a macOS or Music update.
 
 ## Uninstall
