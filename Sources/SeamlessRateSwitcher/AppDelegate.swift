@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
-        let activityItem = NSMenuItem(title: L("Activity…"), action: #selector(openActivity), keyEquivalent: "")
+        let activityItem = NSMenuItem(title: L("Activity Log…"), action: #selector(openActivity), keyEquivalent: "")
         activityItem.target = self
         menu.addItem(activityItem)
 

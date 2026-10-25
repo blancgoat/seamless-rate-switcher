@@ -48,7 +48,7 @@ final class ActivityWindowController: NSWindowController {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
-        window.title = L("Activity")
+        window.title = L("Activity Log")
         window.minSize = NSSize(width: 480, height: 240)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("ActivityWindow")

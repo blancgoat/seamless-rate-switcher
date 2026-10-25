@@ -53,8 +53,8 @@
 "Ready script failed (%@), resuming now" = "준비 확인 스크립트 실패 (%@), 바로 재생";
 "Last run failed: %@" = "마지막 실행 실패: %@";
 "Too close to the end, switching when the track changes" = "곡 끝이 너무 가까워서 곡이 바뀔 때 전환";
-"Activity" = "활동 기록";
-"Activity…" = "활동 기록…";
+"Activity Log" = "활동 기록";
+"Activity Log…" = "활동 기록…";
 "Show Details" = "자세히";
 "Clear" = "지우기";
 "Keep on Top" = "항상 위";
