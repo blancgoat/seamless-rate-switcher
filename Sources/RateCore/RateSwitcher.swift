@@ -64,6 +64,8 @@ public final class RateSwitcher {
     private var resumeAction: MusicScripting.ResumeAction = .resume
     /// 일시정지 → rate 변경 → 대기 → 재개 흐름이 진행 중
     private var switchInFlight = false
+    /// 진행 중인 전환이 맞추는 rate
+    private var inFlightRate: Double?
     private var rateConfirmed: (() -> Void)?
     private var runningReadyScript: ReadyScript?
     /// 미리 불러온 다음 곡 (rate가 지금과 다를 때만). 곡 끝 직전 일시정지 감시 대상
@@ -177,6 +179,13 @@ public final class RateSwitcher {
             releaseHold()
             return
         }
+        // 장치가 이 rate로 바뀐 뒤 아직 준비를 기다리는 중에 같은 rate 곡으로 넘어갔다: Music은 넘긴 곡을 바로 재생하므로
+        // 다시 멈추고, 진행 중인 기다림이 끝나면 함께 재개한다 (rate는 이미 맞으니 새로 바꾸지 않는다)
+        if switchInFlight, inFlightRate == rate, device.nominalSampleRate == rate, action != .resume {
+            onMessage?(.action(L("= rate %ld unchanged, still waiting for the device  (%@, %@)", Int(rate), device.name, reason)))
+            holdAgain(then: action)
+            return
+        }
         if device.nominalSampleRate == rate {
             onMessage?(.action(L("= rate %ld unchanged  (%@, %@)", Int(rate), device.name, reason)))
             releaseHold()
@@ -214,6 +223,7 @@ public final class RateSwitcher {
         let generation = switchGeneration
         let started = Date()
         switchInFlight = true
+        inFlightRate = rate
         resumeAction = action
         disarmEndWatch()
         runningReadyScript?.cancel()
@@ -270,6 +280,28 @@ public final class RateSwitcher {
                     self.heldPause = result.state
                 }
                 proceed()
+            }
+        }
+    }
+
+    /// 진행 중인 전환의 기다림에 합류: 다시 일시정지만 하고, 재개는 그 전환이 끝날 때 한다.
+    private func holdAgain(then action: MusicScripting.ResumeAction) {
+        let generation = switchGeneration
+        let started = Date()
+        resumeAction = action
+        DispatchQueue.global(qos: .userInteractive).async {
+            let result = MusicScripting.pauseNow(then: action)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            DispatchQueue.main.async {
+                self.onMessage?(result.paused
+                    ? .info(L("Paused in %ldms (%ld tries)", ms, result.attempts))
+                    : .warning(L("Couldn’t confirm pause in %ldms (%ld tries)", ms, result.attempts)))
+                guard self.switchInFlight, generation == self.switchGeneration else {
+                    // 일시정지가 확인되기 전에 기다림이 끝나 이미 재개했다: 방금 멈춘 곡을 다시 재생
+                    DispatchQueue.global(qos: .userInteractive).async { MusicScripting.resume(result.state) }
+                    return
+                }
+                self.heldPause = result.state
             }
         }
     }
