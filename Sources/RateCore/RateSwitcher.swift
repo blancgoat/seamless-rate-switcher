@@ -45,7 +45,10 @@ public final class RateSwitcher {
     public var readyScriptFallbackDelay: TimeInterval = 0
 
     /// 곡이 끝나기 이만큼 전에 미리 멈춘다. 새 곡 소리가 잘못된 rate로 한 번도 나가지 않게 하려는 것.
-    public var preEndLead: TimeInterval = 0.15
+    /// 0이어도 새지 않는다: 일시정지는 보낸 뒤 약 5ms면 먹히고, 포맷이 다른 곡 사이에는 Music이 오디오 출력을
+    /// 새로 만드느라 약 40ms 틈이 생겨 그 안에 멈춘다 (실측: 다음 곡은 15ms 남짓만 출력, 들리지 않음).
+    /// 이전 150ms는 "일시정지 확인" 폴링 시간을 지연으로 보고 잡은 값이라 곡 끝이 그만큼 잘렸다.
+    public var preEndLead: TimeInterval = 0
 
     private let tracker = MusicLogTracker()
     private var switchGeneration = 0
