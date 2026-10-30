@@ -16,11 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     private static let settleDelayKey = "settleDelayMs"
     /// 준비 확인 스크립트 경로 (없으면 고정 대기 시간만 사용)
     private static let readyScriptKey = "readyScriptPath"
-    /// 장치가 rate 변경을 확인한 뒤에도 클럭을 다 잡기까지 수 초 걸리는 인터페이스가 많아 넉넉하게 잡는다
-    private static let defaultSettleDelayMs = 5000
+    /// 장치가 rate 변경을 확인하면 바로 소리를 낼 수 있는 인터페이스도 있어(RME Digiface USB) 0으로 두고,
+    /// 앞부분이 잘리는 인터페이스는 사용자가 늘리거나 준비 확인 스크립트를 쓴다
+    private static let defaultSettleDelayMs = 0
+    /// 1.2.2까지의 기본값. 그때부터 쓰던 사람은 값을 저장하지 않았어도 이 값으로 동작해 왔다
+    private static let legacyDefaultSettleDelayMs = 5000
     private static let sliderMaxMs = 20000
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.keepLegacyDefaultDelay()
         Self.migrateDefaultsFromOldName()
         UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs])
         // 이전 버전은 -1을 "끄기"로 저장했다
@@ -77,6 +81,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         button.title = rate.map { " " + Self.shortRate($0) } ?? ""
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
         button.appearsDisabled = !switcher.isRunning
+    }
+
+    /// 기본 대기 시간이 5초에서 0으로 바뀌었다. 기존 사용자가 슬라이더를 건드린 적이 없으면 저장된 값이 없어
+    /// 업데이트하자마자 0이 되므로, 그동안 쓰던 5초를 저장해 둔다. 처음 설치한 사람은 0부터 시작한다.
+    /// migrateDefaultsFromOldName()이 첫 실행 표시를 남기기 전에 불러야 기존 사용자를 구분할 수 있다.
+    private static func keepLegacyDefaultDelay() {
+        let standard = UserDefaults.standard
+        // 한 번만 판단한다: 그러지 않으면 처음 설치한 사람도 두 번째 실행부터 기존 사용자로 보인다
+        let checkedKey = "checkedLegacyDefaultDelay"
+        guard !standard.bool(forKey: checkedKey) else { return }
+        standard.set(true, forKey: checkedKey)
+        guard standard.bool(forKey: "migratedFromLikeLosslessSwitcher"),
+              standard.object(forKey: settleDelayKey) == nil else { return }
+        standard.set(legacyDefaultSettleDelayMs, forKey: settleDelayKey)
     }
 
     /// 이름을 바꾸기 전(LikeLosslessSwitcher) 설정을 한 번만 옮겨온다. 번들 ID가 달라 설정 저장소가 다르다.
