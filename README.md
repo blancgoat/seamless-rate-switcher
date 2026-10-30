@@ -36,7 +36,7 @@ How long a DAC needs after a sample rate change before it can actually play soun
 ### Fixed Time
 <img width="300" height="265" alt="image" src="https://github.com/user-attachments/assets/d0a3b393-0608-4113-b7e3-627028e27136" />
 
-Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 5 seconds). You can also type a number in the box next to it and press Enter to set it in 10 ms steps.
+Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 0). You can also type a number in the box next to it and press Enter to set it in 10 ms steps.
 
 - If **the beginning of the track gets cut off**, increase it.
 - If **the pause feels too long**, decrease it.

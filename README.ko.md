@@ -36,7 +36,7 @@ Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 �
 
 <img width="296" height="258" alt="image" src="https://github.com/user-attachments/assets/8e52f98f-0eca-4c92-9c0e-278343a2ac76" />
 
-메뉴바 아이콘 → **Pause While Switching** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 5초). 옆 칸에 숫자를 넣고 Enter를 눌러 10ms 단위로 맞출 수도 있습니다.
+메뉴바 아이콘 → **Pause While Switching** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 0초). 옆 칸에 숫자를 넣고 Enter를 눌러 10ms 단위로 맞출 수도 있습니다.
 
 - 곡이 바뀔 때 **앞부분이 잘리면** 늘립니다.
 - **멈춰 있는 시간이 길게 느껴지면** 줄입니다.
