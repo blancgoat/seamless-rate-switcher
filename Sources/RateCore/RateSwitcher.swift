@@ -182,9 +182,10 @@ public final class RateSwitcher {
             releaseHold()
             return
         }
-        // 장치가 이 rate로 바뀐 뒤 아직 준비를 기다리는 중에 같은 rate 곡으로 넘어갔다: Music은 넘긴 곡을 바로 재생하므로
-        // 다시 멈추고, 진행 중인 기다림이 끝나면 함께 재개한다 (rate는 이미 맞으니 새로 바꾸지 않는다)
-        if switchInFlight, inFlightRate == rate, device.nominalSampleRate == rate, action != .resume {
+        // 이 rate로 바꾸는 전환이 진행 중인데 같은 rate 곡으로 넘어갔다: Music은 넘긴 곡을 바로 재생하므로
+        // 다시 멈추고, 진행 중인 기다림이 끝나면 함께 재개한다. 일시정지를 확인하느라 아직 rate를 보내기 전이어도
+        // 그 전환이 곧 보내므로 새로 바꾸지 않는다 (장치는 아직 이전 rate라 장치 값으로는 판단할 수 없다)
+        if switchInFlight, inFlightRate == rate, action != .resume {
             onMessage?(.action(L("= rate %ld unchanged, still waiting for the device  (%@, %@)", Int(rate), device.name, reason)))
             holdAgain(then: action)
             return
@@ -278,6 +279,15 @@ public final class RateSwitcher {
                 self.onMessage?(result.paused
                     ? .info(L("Paused in %ldms (%ld tries)", ms, result.attempts))
                     : .warning(L("Couldn’t confirm pause in %ldms (%ld tries)", ms, result.attempts)))
+                // 일시정지를 확인하는 사이에 이 전환이 취소됐다 (releaseHold): 방금 멈춘 곡을 다시 재생
+                guard generation == self.switchGeneration || self.switchInFlight else {
+                    let state = MusicScripting.PauseState(persistentID: result.state.persistentID, action: self.resumeAction)
+                    DispatchQueue.global(qos: .userInteractive).async {
+                        let detail = MusicScripting.resume(state)
+                        DispatchQueue.main.async { self.onMessage?(.detail(detail)) }
+                    }
+                    return
+                }
                 // 더 새로운 전환이 이미 붙잡아 둔 상태를, 늦게 돌아온 이전 일시정지 결과로 덮어쓰지 않는다
                 if self.heldPause == nil || generation == self.switchGeneration {
                     self.heldPause = result.state
@@ -341,7 +351,11 @@ public final class RateSwitcher {
         if heldPause != nil {
             switchGeneration += 1
             resumeHeld(generation: switchGeneration)
-        } else {
+        } else if switchInFlight {
+            // 일시정지를 확인하는 중이라 아직 rate를 보내기 전이다 (예: 바꾸려던 곡에서 원래 rate 곡으로 바로 돌아옴).
+            // 그 전환을 취소하지 않으면 늦게 돌아온 일시정지 결과가 이어서 rate를 바꿔 버린다.
+            // 취소된 전환의 일시정지 결과는 switchWithPause에서 다시 재생한다.
+            switchGeneration += 1
             switchInFlight = false
         }
     }
