@@ -18,6 +18,8 @@ public final class MusicLogTracker {
     public enum Decision: Equatable {
         /// 곡이 바뀌었고 포맷을 안다 → 이 rate로 맞춘다
         case switchTo(player: String, item: String, format: Format)
+        /// 재생 중인 곡의 rate가 바뀌었다 (곡은 그대로) → 이 rate로 다시 맞춘다
+        case formatChanged(player: String, item: String, format: Format)
     }
 
     public enum Event: Equatable {
@@ -60,13 +62,19 @@ public final class MusicLogTracker {
             guard let item = lastItemLogged[subPlayer] ?? pending[player], let rate = Double(m[2]) else { return nil }
             let format = Format(codec: m[1], sampleRate: rate)
             audioPlayers.insert(player)
-            if formats["\(player)|\(item)"] != format {
+            let previous = formats["\(player)|\(item)"]
+            if previous != format {
                 formats["\(player)|\(item)"] = format
                 onEvent?(.formatLearned(player: player, item: item, format: format))
             }
             if pending[player] == item {
                 pending[player] = nil
                 return .switchTo(player: player, item: item, format: format)
+            }
+            // 재생 중인 곡의 포맷이 바뀌었다. Music은 Apple Music 무손실 곡을 손실(AAC) 스트림으로 먼저 시작했다가
+            // 곧 무손실로 바꾸곤 한다 (예: qaac 48000 → 약 0.6초 뒤 qlac 96000)
+            if currentItem[player] == item, let previous, previous.sampleRate != rate {
+                return .formatChanged(player: player, item: item, format: format)
             }
             return nil
         }

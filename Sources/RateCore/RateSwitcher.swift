@@ -133,16 +133,23 @@ public final class RateSwitcher {
             handle(transition)
             return
         }
-        guard let decision = tracker.handle(logMessage),
-              case let .switchTo(player, item, format) = decision else { return }
+        guard let decision = tracker.handle(logMessage) else { return }
+        let player: String, item: String, format: MusicLogTracker.Format, action: MusicScripting.ResumeAction
+        switch decision {
+        case let .switchTo(p, i, f):
+            // 곡이 바뀐 직후의 판단이므로 멈췄다면 처음부터 다시 재생
+            (player, item, format, action) = (p, i, f, .rewind)
+        case let .formatChanged(p, i, f):
+            // 곡이 막 바뀌어 아직 붙잡고 있으면 그 전환이 정한 대로 재개하고, 곡 중간이면 멈춘 자리에서 재개
+            (player, item, format, action) = (p, i, f, switchInFlight || heldPause != nil ? resumeAction : .resume)
+        }
         let reason = "P/\(player) \(item) \(format.codec)"
         if inTransition && settleDelay != nil && AudioDevice.defaultOutput?.nominalSampleRate != format.sampleRate {
             afterTransition = (format.sampleRate, reason)
             onMessage?(.info(L("Song transition in progress, switching after it ends")))
             return
         }
-        // 곡이 바뀐 직후의 판단이므로 멈췄다면 처음부터 다시 재생
-        setRate(format.sampleRate, reason: reason, then: .rewind)
+        setRate(format.sampleRate, reason: reason, then: action)
     }
 
     public func start() throws {
