@@ -16,7 +16,7 @@ A menu bar app for the Music app on Mac.
 ## Getting Started
 
 Works with both Apple Music streaming and local files in your library.
-**Apple Silicon Macs only. Tested only on macOS 27.0.1.**
+**Apple Silicon Macs only. Tested only on macOS ~~27.0.1~~ 27.2.**
 
 1. Download `Seamless-Rate-Switcher-<version>.zip` from [Releases](https://github.com/blancgoat/seamless-rate-switcher/releases/latest), unzip it, put `Seamless Rate Switcher.app` in `/Applications`, and launch it.
    - The app is not signed, so the first launch shows a warning that Apple cannot check it for malicious software. Go to **System Settings → Privacy & Security** and click **Open Anyway**. Or run the command below in Terminal and open the app again.
