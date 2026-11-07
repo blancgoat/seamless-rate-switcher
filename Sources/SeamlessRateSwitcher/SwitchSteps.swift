@@ -288,7 +288,7 @@ final class StepRowView: NSView {
         switch step.kind {
         case let .planned(rate):
             text = L("Next track (planned)")
-            right = "\(AppDelegate.shortRate(rate))Hz"
+            right = AppDelegate.menuRateHz(rate)
             titleColor = .secondaryLabelColor
             markText = ""
         case .pausing:
@@ -309,7 +309,7 @@ final class StepRowView: NSView {
             text = L("Ready script")
             right = seconds
         case let .done(from, to, outcome):
-            let change = "\(from.map(AppDelegate.shortRate) ?? "?") → \(AppDelegate.shortRate(to))"
+            let change = "\(from.map(AppDelegate.menuRate) ?? "?") → \(AppDelegate.menuRate(to))"
             if case .uncertain = outcome {
                 symbol = "?"
                 text = L("Switched %@ without confirming the device is ready", change)

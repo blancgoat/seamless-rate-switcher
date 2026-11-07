@@ -79,7 +79,7 @@
 "Waiting for Core Audio to confirm the new sample rate…" = "Core Audio가 새 샘플레이트를 확인하기를 기다리는 중…";
 "Waiting the extra delay…" = "추가 대기 중…";
 "Running the ready script…" = "준비 확인 스크립트 실행 중…";
-"Next track: %@Hz" = "다음 곡: %@Hz";
+"Next track: %@" = "다음 곡: %@";
 "Auto Switch Sample Rate for Music App" = "Music 앱 샘플레이트 자동 전환";
 "Auto switch off, not applying %ld  (%@)" = "자동 전환 꺼짐, %1$ld 적용 안 함  (%2$@)";
 "Instead of a fixed delay, a script can tell when the audio interface is ready." = "고정 대기 시간 대신, 오디오 인터페이스가 준비됐는지 확인하는 스크립트를 쓸 수 있습니다.";
@@ -95,3 +95,4 @@
 "%.1fs left" = "%.1f초 남음";
 "Switched %@" = "전환 완료  %@";
 "Switched %@ without confirming the device is ready" = "전환 %@, 장치 준비 확인 못 함";
+"Sample Rate Format" = "샘플레이트 표기";

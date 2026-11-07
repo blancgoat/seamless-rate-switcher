@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         Self.keepLegacyDefaultDelay()
         Self.migrateDefaultsFromOldName()
         UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs,
-                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.autoSwitch: true])
+                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.rateFormat: RateFormat.short.rawValue, SettingsKey.autoSwitch: true])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let shown: Shown
         switch rateStyle {
         case .off: shown = Shown(text: "")
-        case .simple: shown = Shown(text: rate.map(Self.shortRate) ?? "")
+        case .simple: shown = Shown(text: rate.map(Self.displayRate) ?? "")
         case .detailed: shown = detailedTitle(rate: rate)
         }
         let tip = [switcher.isHoldingPlayback ? holdingNote : nil, shown.tip].compactMap { $0 }.joined(separator: "\n")
@@ -183,20 +183,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     private func detailedTitle(rate: Double?) -> Shown {
         let now = Date()
         let phase = switcher.phase
-        let current = rate.map(Self.shortRate) ?? ""
+        let current = rate.map(Self.displayRate) ?? ""
         switch phase {
         case let .pausing(to):
-            return Shown(text: "\(current) → \(Self.shortRate(to))", tip: L("Pausing Music…"))
+            return Shown(text: "\(current) → \(Self.displayRate(to))", tip: L("Pausing Music…"))
         case let .confirming(to):
-            return Shown(text: "\(Self.shortRate(to)) ⚙︎", tip: L("Waiting for Core Audio to confirm the new sample rate…"))
+            return Shown(text: "\(Self.displayRate(to)) ⚙︎", tip: L("Waiting for Core Audio to confirm the new sample rate…"))
         case let .settling(to, until):
             let left = max(until.timeIntervalSince(now), 0)
             // 10초 미만이면 숫자 한 칸 폭의 공백(U+2007)을 앞에 붙여 10.0 → 9.9로 넘어갈 때도 폭이 같게 한다 (최대 20초)
             let padded = (left < 9.95 ? "\u{2007}" : "") + String(format: "%.1fs", left)
-            return Shown(text: "\(Self.shortRate(to)) \(padded)", tip: L("Waiting the extra delay…"), ticking: true)
+            return Shown(text: "\(Self.displayRate(to)) \(padded)", tip: L("Waiting the extra delay…"), ticking: true)
         case let .readyScript(to):
             let dots = Int(now.timeIntervalSinceReferenceDate * 3) % 3 + 1
-            return Shown(text: "\(Self.shortRate(to)) ···", tip: L("Running the ready script…"), ticking: true, hiddenTail: 3 - dots)
+            return Shown(text: "\(Self.displayRate(to)) ···", tip: L("Running the ready script…"), ticking: true, hiddenTail: 3 - dots)
         case .idle:
             if let doneUntil, now < doneUntil {
                 if case let .uncertain(reason) = shownOutcome {
@@ -205,8 +205,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
                 return Shown(text: "\(current) ✓", ticking: true)
             }
             if let next = nextShown, switcher.isEnabled {
-                let text = "\(current) → (\(Self.shortRate(next.rate)))"
-                let tip = L("Next track: %@Hz", Self.shortRate(next.rate))
+                let text = "\(current) → (\(Self.displayRate(next.rate)))"
+                let tip = L("Next track: %@", Self.displayRate(next.rate))
                 if next.rate != rate { return Shown(text: text, tip: tip) }
                 if now.timeIntervalSince(next.since) < 2 { return Shown(text: text, tip: tip, ticking: true) }
             }
@@ -233,8 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     private func refreshMenuStatus() {
         guard statusMenuOpen else { return }
         if let device = AudioDevice.defaultOutput {
-            var line = "\(device.name) · \(Self.shortRate(device.nominalSampleRate))Hz"
-            if let to = switcher.phase.target, to != device.nominalSampleRate { line += " → \(Self.shortRate(to))Hz" }
+            var line = "\(device.name) · \(Self.menuRateHz(device.nominalSampleRate))"
+            if let to = switcher.phase.target, to != device.nominalSampleRate { line += " → \(Self.menuRateHz(to))" }
             if deviceMenuItem?.title != line { deviceMenuItem?.title = line }
         }
         steps.sync()
@@ -310,11 +310,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     private var drawnTitle: (text: String, hiddenTail: Int)?
     private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
 
-    /// 44100 → "44.1k", 96000 → "96k"
-    static func shortRate(_ rate: Double) -> String {
-        let k = rate / 1000
-        return k.rounded() == k ? "\(Int(k))k" : String(format: "%.1fk", k)
+    private static var rateFormat: RateFormat {
+        UserDefaults.standard.string(forKey: SettingsKey.rateFormat).flatMap(RateFormat.init) ?? .short
     }
+
+    /// 메뉴바용, 설정한 표기 방식으로: "44.1k" / "44.1kHz" / "44100" / "44100 Hz"
+    static func displayRate(_ rate: Double) -> String {
+        let format = rateFormat
+        switch format {
+        case .full: return menuRate(rate)
+        case .fullHz: return menuRateHz(rate)
+        case .short, .shortHz:
+            let k = rate / 1000
+            let number = k.rounded() == k ? "\(Int(k))k" : String(format: "%.1fk", k)
+            return format == .shortHz ? number + "Hz" : number
+        }
+    }
+
+    /// 메뉴 안용 고정 표기 (설정과 관계없이 정확한 값): 44100 → "44100"
+    static func menuRate(_ rate: Double) -> String {
+        "\(Int(rate.rounded()))"
+    }
+
+    /// 메뉴 안용 고정 표기, 단위까지: 44100 → "44100 Hz"
+    static func menuRateHz(_ rate: Double) -> String {
+        menuRate(rate) + " Hz"
+    }
+
+    enum RateFormat: String { case short, shortHz, full, fullHz }
 
     // MARK: - 메뉴 (열 때마다 새로 구성)
 
@@ -324,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         updateTitle()
 
         if let device = AudioDevice.defaultOutput {
-            menu.addItem(disabled: "\(device.name) · \(Self.shortRate(device.nominalSampleRate))Hz")
+            menu.addItem(disabled: "\(device.name) · \(Self.menuRateHz(device.nominalSampleRate))")
             deviceMenuItem = menu.items.last
             steps.install(in: menu, at: menu.numberOfItems)
         } else {

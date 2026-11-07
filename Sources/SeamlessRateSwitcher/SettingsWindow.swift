@@ -12,6 +12,9 @@ enum SettingsKey {
     static let readyScript = "readyScriptPath"
     /// 메뉴 막대 아이콘 옆 샘플레이트 표시: off(아이콘만) / simple(48k) / detailed(다음 곡·전환 단계까지)
     static let menuBarRateStyle = "menuBarRateStyle"
+    /// 샘플레이트 표기: short(44.1k) / shortHz(44.1kHz) / full(44100) / fullHz(44100 Hz).
+    /// 메뉴바에만 쓴다 (메뉴 안은 44100 Hz로 고정)
+    static let rateFormat = "rateFormat"
     /// 샘플레이트 자동 전환. 예전에 지운 같은 기능의 키(autoSwitchEnabled)는 꺼 둔 채 남아 있을 수 있어 새 키를 쓴다
     static let autoSwitch = "autoSwitch"
 
@@ -49,6 +52,7 @@ private struct SettingsView: View {
     @ObservedObject var state: SettingsViewState
 
     @AppStorage(SettingsKey.menuBarRateStyle) private var rateStyle = "simple"
+    @AppStorage(SettingsKey.rateFormat) private var rateFormat = "short"
 
     var body: some View {
         Form {
@@ -62,6 +66,15 @@ private struct SettingsView: View {
                     Text(L("Current Sample Rate: the output device’s rate, like 48k.") + "\n"
                          + L("Detailed: also the next track’s rate and each step of a switch.") + "\n"
                          + L("⚙︎ waiting for Core Audio · 1.2s extra delay · ··· ready script"))
+                }
+                // 메뉴바에 샘플레이트를 표시하지 않으면 표기 방식도 의미가 없다
+                if rateStyle != "off" {
+                    Picker(L("Sample Rate Format"), selection: $rateFormat) {
+                        Text("44.1k").tag("short")
+                        Text("44.1kHz").tag("shortHz")
+                        Text("44100").tag("full")
+                        Text("44100 Hz").tag("fullHz")
+                    }
                 }
                 Toggle(L("Launch at Login"), isOn: Binding(get: { state.launchAtLogin }, set: setLaunchAtLogin))
             }
