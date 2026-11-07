@@ -15,7 +15,7 @@ Mac의 Music 앱용 메뉴바 앱입니다.
 ## 시작하기
 
 Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 지원합니다.
-**Apple Silicon Mac 전용이며, macOS 27.0.1에서만 테스트했습니다.**
+**Apple Silicon Mac 전용이며, macOS ~~27.0.1~~ 27.2에서만 테스트했습니다.**
 
 1. [Releases](https://github.com/blancgoat/seamless-rate-switcher/releases/latest)에서 `Seamless-Rate-Switcher-<버전>.zip`을 받아 압축을 풀고, `Seamless Rate Switcher.app`을 `/Applications`에 넣고 실행합니다.
    - 서명되지 않은 앱이라 처음 열 때 "Apple이 악성 코드가 없는지 확인할 수 없음" 경고가 뜹니다. **시스템 설정 → 개인정보 보호 및 보안**에서 **그래도 열기**를 누르면 됩니다. 또는 터미널에서 아래 명령을 실행한 뒤 다시 엽니다.
