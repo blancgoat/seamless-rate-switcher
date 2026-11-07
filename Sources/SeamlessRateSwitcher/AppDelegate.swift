@@ -2,31 +2,30 @@ import AppKit
 import NoteGlyph
 import OSLog
 import RateCore
-import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSTextFieldDelegate {
     private let switcher = RateSwitcher()
     private var statusItem: NSStatusItem!
     private let activity = ActivityLog()
     private lazy var activityWindow = ActivityWindowController(log: activity)
+    private lazy var settingsWindow = SettingsWindowController()
 
     private static let log = Logger(subsystem: "dev.blancgoat.SeamlessRateSwitcher", category: "switch")
-    private static let settleEnabledKey = "settleEnabled"
-    /// 전환 시 일시정지 후 추가 대기(ms). 인터페이스마다 클럭을 다시 잡는 시간이 달라 사용자가 정한다
-    private static let settleDelayKey = "settleDelayMs"
-    /// 준비 확인 스크립트 경로 (없으면 고정 대기 시간만 사용)
-    private static let readyScriptKey = "readyScriptPath"
+    private static let settleEnabledKey = SettingsKey.settleEnabled
+    private static let settleDelayKey = SettingsKey.settleDelay
+    private static let readyScriptKey = SettingsKey.readyScript
     /// 장치가 rate 변경을 확인하면 바로 소리를 낼 수 있는 인터페이스도 있어(RME Digiface USB) 0으로 두고,
     /// 앞부분이 잘리는 인터페이스는 사용자가 늘리거나 준비 확인 스크립트를 쓴다
     private static let defaultSettleDelayMs = 0
     /// 1.2.2까지의 기본값. 그때부터 쓰던 사람은 값을 저장하지 않았어도 이 값으로 동작해 왔다
     private static let legacyDefaultSettleDelayMs = 5000
-    private static let sliderMaxMs = 20000
+    private static let sliderMaxMs = SettingsKey.maxDelayMs
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.keepLegacyDefaultDelay()
         Self.migrateDefaultsFromOldName()
-        UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs])
+        UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs,
+                                                  SettingsKey.showRateInMenuBar: true, SettingsKey.autoSwitch: true])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
@@ -37,9 +36,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+        NSApp.mainMenu = makeMainMenu()
 
         applySettleDelay()
         applyReadyScript()
+        applyAutoSwitch()
+        // 메뉴나 설정 창에서 바꾼 값을 바로 적용한다
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            applySettleDelay()
+            applyReadyScript()
+            applyAutoSwitch()
+            updateTitle()
+        }
         switcher.onMessage = { [weak self] message in
             guard let self else { return }
             // 최근 기록과 같은 내용을 시스템 로그에도 남긴다 (log show --predicate 'subsystem == "dev.blancgoat.SeamlessRateSwitcher"')
@@ -78,9 +87,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         button.setAccessibilityLabel(switcher.isHoldingPlayback ? holdingNote : "Seamless Rate Switcher")
         button.toolTip = switcher.isHoldingPlayback ? holdingNote : nil
         button.imagePosition = .imageLeading
-        button.title = rate.map { " " + Self.shortRate($0) } ?? ""
+        let showRate = UserDefaults.standard.bool(forKey: SettingsKey.showRateInMenuBar)
+        button.title = showRate ? rate.map { " " + Self.shortRate($0) } ?? "" : ""
         button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
-        button.appearsDisabled = !switcher.isRunning
+        // 자동 전환을 끄면 아이콘을 흐리게 해서 앱이 쉬고 있음을 알린다
+        button.appearsDisabled = !switcher.isRunning || !switcher.isEnabled
     }
 
     /// 기본 대기 시간이 5초에서 0으로 바뀌었다. 기존 사용자가 슬라이더를 건드린 적이 없으면 저장된 값이 없어
@@ -164,31 +175,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
         menu.addItem(.separator())
 
+        // 앱의 주 기능이라 설정 창이 아닌 메뉴에 둔다. Music이 스스로 rate를 맞추게 되면 이것만 끄면 된다
+        let auto = NSMenuItem(title: L("Auto Switch Sample Rate for Music App"), action: #selector(toggleAutoSwitch), keyEquivalent: "")
+        auto.target = self
+        auto.state = switcher.isEnabled ? .on : .off
+        menu.addItem(auto)
+
         let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
         settle.toolTip = L("Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends.")
         menu.addItem(settle)
         if settleEnabled {
+            // 스크립트를 쓰면 스크립트가 준비 시점을 정하므로 추가 대기는 숨긴다.
+            // 쓰지 않으면 추가 대기가 주 설정이고, 스크립트 선택은 그 대안으로 아래에 둔다
             if readyScriptURL == nil {
                 let sliderItem = NSMenuItem()
                 sliderItem.view = makeSettleSliderView()
                 menu.addItem(sliderItem)
-            } else {
-                // 스크립트가 준비 시점을 정하므로 고정 대기 시간은 숨긴다
-                menu.addItem(disabled: "    " + L("Delay: decided by the ready script"))
             }
             makeReadyScriptItems().forEach(menu.addItem)
         }
 
-        let login = NSMenuItem(title: L("Launch at Login"), action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-        login.target = self
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
+        menu.addItem(.separator())
 
-        let activityItem = NSMenuItem(title: L("Activity Log…"), action: #selector(openActivity), keyEquivalent: "")
+        let activityItem = NSMenuItem(title: L("Show Log…"), action: #selector(openActivity), keyEquivalent: "")
         activityItem.target = self
         menu.addItem(activityItem)
+
+        let settingsItem = NSMenuItem(title: L("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: L("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -204,6 +221,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     private var settleEnabled: Bool { UserDefaults.standard.bool(forKey: Self.settleEnabledKey) }
     private var settleDelayMs: Int { UserDefaults.standard.integer(forKey: Self.settleDelayKey) }
+    private func applyAutoSwitch() {
+        let enabled = UserDefaults.standard.bool(forKey: SettingsKey.autoSwitch)
+        if switcher.isEnabled != enabled { switcher.isEnabled = enabled }
+    }
+
     private weak var settleSlider: NSSlider?
     private weak var settleField: NSTextField?
 
@@ -222,8 +244,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     @objc private func toggleSettle() {
         UserDefaults.standard.set(!settleEnabled, forKey: Self.settleEnabledKey)
-        applySettleDelay()
-        applyReadyScript()
     }
 
     /// 메뉴 안에 들어가는 라벨 + 입력칸 + 슬라이더 (0~20초, 10ms 단위).
@@ -302,11 +322,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         guard let url = readyScriptURL else {
             let choose = NSMenuItem(title: "    " + L("Choose Ready Script…"), action: #selector(chooseReadyScript), keyEquivalent: "")
             choose.target = self
-            choose.toolTip = L("Resumes as soon as the script exits. Even if it fails, playback resumes right away.")
+            choose.toolTip = L("Instead of a fixed delay, a script can tell when the audio interface is ready.")
             return [choose]
         }
         let item = NSMenuItem(title: "    " + L("Ready Script: %@", url.lastPathComponent), action: nil, keyEquivalent: "")
-        item.toolTip = url.path
+        item.toolTip = url.path + "\n" + L("Resumes as soon as the script exits. Even if it fails, playback resumes right away.")
         let submenu = NSMenu()
         let remove = NSMenuItem(title: L("Remove Ready Script"), action: #selector(removeReadyScript), keyEquivalent: "")
         remove.target = self
@@ -352,20 +372,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         activityWindow.show()
     }
 
-    @objc private func toggleLaunchAtLogin() {
-        let service = SMAppService.mainApp
-        do {
-            if service.status == .enabled {
-                try service.unregister()
-            } else {
-                try service.register()
-            }
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = L("Couldn’t Change Launch at Login")
-            alert.informativeText = error.localizedDescription + "\n" + L("The app may need to be in /Applications.")
-            alert.runModal()
-        }
+    @objc private func toggleAutoSwitch() {
+        UserDefaults.standard.set(!switcher.isEnabled, forKey: SettingsKey.autoSwitch)
+    }
+
+    @objc private func openSettings() {
+        settingsWindow.show()
+    }
+
+    /// Dock 없는 앱이라 메뉴 막대에 보이지는 않지만, 창이 앞에 있을 때 ⌘, ⌘W ⌘Q와 입력칸의 복사·붙여넣기가 이 메뉴로 동작한다
+    private func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+
+        let appMenu = NSMenu()
+        let settings = appMenu.addItem(withTitle: L("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: L("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        main.addItem(withTitle: "", action: nil, keyEquivalent: "").submenu = appMenu
+
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
+
+        let window = NSMenu(title: "Window")
+        window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        main.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
+
+        return main
     }
 }
 

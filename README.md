@@ -25,8 +25,8 @@ Works with both Apple Music streaming and local files in your library.
      xattr -dr com.apple.quarantine "/Applications/Seamless Rate Switcher.app"
      ```
 
-2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**.
-3. Play music in the Music app, and the sample rate follows each track automatically.
+2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**. To show only the note, turn the rate off in **Settings…** (⌘,).
+3. Play music in the Music app, and the sample rate follows each track automatically. To pause this, turn off **Auto Switch Sample Rate for Music App** in the menu bar icon (the icon dims).
 4. The first time, macOS asks whether the app may control Music. Click **Allow**. This is needed to pause/resume while switching and to read the sample rate of local files.
 
 ## Setting the Wait Time
