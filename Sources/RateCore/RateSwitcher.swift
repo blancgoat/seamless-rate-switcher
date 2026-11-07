@@ -556,10 +556,12 @@ public final class RateSwitcher {
                     recheck(min(remaining - preEndLead - 0.4, 5))
                     return
                 }
-                // 다음 곡을 너무 늦게 알게 돼 곡 끝까지 거의 안 남았으면, 실제 곡 전환 때 처리한다
+                // 다음 곡을 너무 늦게 알게 돼 곡 끝까지 거의 안 남았으면, 실제 곡 전환 때 처리한다.
+                // 보통은 곡을 넘긴 경우다: Music은 넘기는 순간에야 다음 곡을 불러오고, 그때 재생 위치를 곡 끝으로 알려 준다.
+                // 곡이 실제로 끝날 때 늦게 안 경우와 로그로는 구분할 수 없어 둘 다 맞는 사실만 남긴다
                 guard remaining >= 0.1 else {
                     disarmEndWatch()
-                    onMessage?(.info(L("Too close to the end, switching when the track changes")))
+                    onMessage?(.info(L("Learned the next track’s format as the track changed (e.g. skipped), switching when it changes")))
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(remaining - preEndLead, 0)) { [self] in
