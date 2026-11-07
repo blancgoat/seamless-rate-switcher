@@ -57,6 +57,10 @@ public final class MusicLogTracker {
     // 대신 곡 전환 몇 초 전에 이 로그를 남기므로, 그 AudioQueue를 만들 때 기록한 포맷을 이 곡의 포맷으로 본다.
     // itemfig_createRenderTriplesForAudio: <0x7ad20d9400|I/NOR.01> reusing old audio pipeline 0x7ad96f57c0 RP/FH.21
     private static let reusedPipeline = try! NSRegularExpression(pattern: #"<0x[0-9a-f]+\|(I/[\w.]+)> reusing old audio pipeline 0x[0-9a-f]+ RP/((\w+(?:\.\d+)*)\.\d+)"#)
+    // 스트리밍 재생기도 다음 곡이 같은 포맷이면 AudioQueue를 새로 만들지 않고 그대로 쓴다 (로그 없음).
+    // 대신 곡이 재생을 시작할 때(곡 전환 로그 직전) 그 곡의 실제 포맷을 이 로그로 알린다. 파일 재생기의 같은 로그에는 SampleRate가 없다.
+    // fpfs_ReportAudioPlaybackThroughFigLog: [QE Critical][0x7976309c00|P/WE]: <0x7969a70e00|I/IQP.01>: [AudioFormat qlac is  decodable] ... [SampleRate 44100] ...
+    private static let playbackReport = try! NSRegularExpression(pattern: #"ReportAudioPlaybackThroughFigLog: .*?\|P/(\w+(?:\.\d+)*)\]: <0x[0-9a-f]+\|(I/[\w.]+)>: \[AudioFormat (\S+).*?\[SampleRate (\d+(?:\.\d+)?)\]"#)
     // <P/WX|0x74b58ab380> currentItem KVO: updating current item from I/LUM.01 to I/XKF.01
     private static let currentItemChange = try! NSRegularExpression(pattern: #"<P/(\w+)\|0x[0-9a-f]+> currentItem KVO: updating current item from (\S+) to (\S+)"#)
 
@@ -79,6 +83,20 @@ public final class MusicLogTracker {
         if let m = Self.match(Self.reusedPipeline, message) {
             guard let format = queueFormats[m[1]] else { return nil }
             return learn(player: Self.outerPlayer(m[2]), item: m[0], format: format)
+        }
+
+        if let m = Self.match(Self.playbackReport, message), let rate = Double(m[3]) {
+            let player = Self.outerPlayer(m[0])
+            let item = m[1]
+            let format = Format(codec: m[2], sampleRate: rate)
+            // 지금 곡(또는 포맷을 기다리는 곡)이면 AudioQueue 로그와 똑같이 다룬다
+            if currentItem[player] == item || pending[player] == item {
+                return learn(player: player, item: item, format: format)
+            }
+            // 곧 시작할 곡: 곡 전환 로그가 바로 뒤따르므로 기록만 해 둔다.
+            // (다음 곡 미리 불러오기로 다루면 곡 끝 감시를 걸게 되는데, 이미 곡이 넘어가는 중이다)
+            formats["\(player)|\(item)"] = format
+            return nil
         }
 
         if let m = Self.match(Self.currentItemChange, message) {
