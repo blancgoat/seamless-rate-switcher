@@ -153,7 +153,7 @@ final class SwitchSteps {
         guard let menu else { return }
         let now = Date()
         let ids = Set(steps.map(\.id))
-        // 지워진 줄: 위에서부터 이어서 오른쪽으로 밀리며 사라지고(자리는 유지), 다 사라지면 함께 접힌다
+        // 지워진 줄: 위에서부터 이어서 오른쪽으로 밀리며 사라지고(자리는 유지), 다 사라지면 한 번에 빠진다
         let removed = rows.filter { !ids.contains($0.key) && !leaving.contains($0.key) }
             .sorted { menu.index(of: $0.value.item) < menu.index(of: $1.value.item) }
         if !removed.isEmpty {
@@ -179,34 +179,16 @@ final class SwitchSteps {
         }
     }
 
-    /// 사라진 줄들의 높이를 함께 줄인 뒤 메뉴에서 뺀다.
-    /// 메뉴가 열려 있는 동안 높이 변화를 따라가지 않으면, 마지막에 빠지는 순간 한 번에 줄어든다.
+    /// 사라진 줄들을 한 번에 메뉴에서 뺀다.
+    /// 높이를 프레임마다 줄이면 메뉴 창 전체를 그때마다 다시 계산해 끊겨 보인다. 줄이 생길 때도 공간은 한 번에
+    /// 생기고 내용만 움직이므로, 사라질 때도 내용이 빠진 뒤 공간을 한 번에 없앤다.
     private func collapse(_ removed: [(id: Int, row: (item: NSMenuItem, view: StepRowView))]) {
-        let finish = { [weak self] in
-            guard let self else { return }
-            for (id, row) in removed {
-                if let menu, menu.index(of: row.item) >= 0 { menu.removeItem(row.item) }
-                // 그사이 메뉴를 새로 만들었으면 같은 id라도 다른 줄이다
-                if rows[id]?.view === row.view { rows[id] = nil }
-                leaving.remove(id)
-            }
+        for (id, row) in removed {
+            if let menu, menu.index(of: row.item) >= 0 { menu.removeItem(row.item) }
+            // 그사이 메뉴를 새로 만들었으면 같은 id라도 다른 줄이다
+            if rows[id]?.view === row.view { rows[id] = nil }
+            leaving.remove(id)
         }
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return finish() }
-        let start = Date()
-        let duration = 0.25
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { timer in
-            let progress = min(Date().timeIntervalSince(start) / duration, 1)
-            let eased = 1 - pow(1 - progress, 3)
-            for (_, row) in removed {
-                // 폭은 처음 정한 값으로 둔다. 메뉴 폭만큼 늘어난 지금 폭을 넣으면 메뉴가 그걸 원하는 폭으로 보고 더 넓힌다
-                row.view.setFrameSize(NSSize(width: StepRowView.width, height: StepRowView.height * (1 - eased)))
-            }
-            if progress >= 1 {
-                timer.invalidate()
-                finish()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)  // 메뉴가 열려 있어도 돌게
     }
 
     private func makeRow(_ step: Step) -> (item: NSMenuItem, view: StepRowView) {
