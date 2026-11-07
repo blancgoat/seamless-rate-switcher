@@ -660,16 +660,21 @@ public final class RateSwitcher {
         Thread.detachNewThread { [weak self] in
             var buffer = Data()
             let handle = pipe.fileHandleForReading
-            while true {
-                let chunk = handle.availableData
-                if chunk.isEmpty { break }
-                buffer.append(chunk)
-                while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let lineData = buffer[buffer.startIndex..<newline]
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    guard let line = String(data: lineData, encoding: .utf8),
-                          let entry = MusicLog.parse(ndjsonLine: line) else { continue }
-                    DispatchQueue.main.async { self?.feed(logMessage: entry.message) }
+            // 이 스레드는 앱이 끝날 때까지 돌므로, 읽을 때마다 자동 해제 풀을 비워야 한다.
+            // 그러지 않으면 availableData가 돌려준 조각(약 16KB)과 그 사이 만든 문자열이 해제되지 않고 계속 쌓인다.
+            var ended = false
+            while !ended {
+                autoreleasepool {
+                    let chunk = handle.availableData
+                    if chunk.isEmpty { ended = true; return }
+                    buffer.append(chunk)
+                    while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                        let lineData = buffer[buffer.startIndex..<newline]
+                        buffer.removeSubrange(buffer.startIndex...newline)
+                        guard let line = String(data: lineData, encoding: .utf8),
+                              let entry = MusicLog.parse(ndjsonLine: line) else { continue }
+                        DispatchQueue.main.async { self?.feed(logMessage: entry.message) }
+                    }
                 }
             }
             DispatchQueue.main.async {
