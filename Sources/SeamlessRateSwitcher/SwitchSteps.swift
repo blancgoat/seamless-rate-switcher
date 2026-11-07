@@ -228,6 +228,8 @@ final class StepRowView: NSView {
     private static let iconWidth: CGFloat = 22
     private static let markWidth: CGFloat = 16
     private static let detailWidth: CGFloat = 86
+    /// 클릭할 수 없는 줄이라 메뉴의 비활성 항목(장치 줄 등)과 같은 색으로 그린다
+    private static let inactive = NSColor.disabledControlTextColor
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: Self.height))
@@ -237,10 +239,10 @@ final class StepRowView: NSView {
         title.font = .menuFont(ofSize: 0)
         title.lineBreakMode = .byTruncatingTail
         detail.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        detail.textColor = .secondaryLabelColor
+        detail.textColor = Self.inactive
         detail.alignment = .right
         mark.font = .menuFont(ofSize: 0)
-        mark.textColor = .secondaryLabelColor
+        mark.textColor = Self.inactive
         mark.alignment = .center
         [icon, title, detail, mark].forEach(addSubview)
     }
@@ -264,14 +266,14 @@ final class StepRowView: NSView {
         var symbol = ""
         /// 기호 끝에서 이만큼은 자리만 차지하고 투명하게 (점 애니메이션)
         var hiddenSymbolTail = 0
-        var titleColor = NSColor.labelColor
+        var titleColor = Self.inactive
         var text: String
         var right: String
         switch step.kind {
         case let .planned(rate):
             text = L("Next track (planned)")
             right = AppDelegate.menuRateHz(rate)
-            titleColor = .secondaryLabelColor
+            titleColor = Self.inactive
             markText = ""
         case .pausing:
             symbol = "⏸"
@@ -307,7 +309,7 @@ final class StepRowView: NSView {
         if toolTip != step.problem { toolTip = step.problem }
         if (symbol, hiddenSymbolTail) != drawnSymbol {
             drawnSymbol = (symbol, hiddenSymbolTail)
-            let attributed = NSMutableAttributedString(string: symbol, attributes: [.font: icon.font!, .foregroundColor: NSColor.labelColor])
+            let attributed = NSMutableAttributedString(string: symbol, attributes: [.font: icon.font!, .foregroundColor: Self.inactive])
             if hiddenSymbolTail > 0 {
                 attributed.addAttribute(.foregroundColor, value: NSColor.clear,
                                         range: NSRange(location: attributed.length - hiddenSymbolTail, length: hiddenSymbolTail))
