@@ -39,7 +39,7 @@ final class SwitchSteps {
     // MARK: - 상태 추적
 
     /// 단계·다음 곡이 바뀔 때마다 (그리고 메뉴가 열려 있으면 주기적으로) 부른다
-    func track(phase: RateSwitcher.Phase, outcome: RateSwitcher.Outcome, nextRate: Double?, deviceRate: Double?, enabled: Bool) {
+    func track(phase: RateSwitcher.Phase, outcome: RateSwitcher.Outcome, nextRate: Double?, deviceRate: Double?) {
         let now = Date()
         if phase != lastPhase {
             phaseChanged(from: lastPhase, to: phase, outcome: outcome, deviceRate: deviceRate, now: now)
@@ -52,7 +52,7 @@ final class SwitchSteps {
         }
         // 다음 곡 예정 줄: 전환 결과를 보여 주는 동안은 건드리지 않는다
         guard !steps.contains(where: { if case .done = $0.kind { true } else { false } }) else { return }
-        if enabled, let nextRate, nextRate != deviceRate {
+        if let nextRate, nextRate != deviceRate {
             if let index = steps.firstIndex(where: { if case .planned = $0.kind { true } else { false } }) {
                 steps[index].kind = .planned(nextRate)
             } else {

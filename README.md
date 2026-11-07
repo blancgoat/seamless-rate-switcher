@@ -26,7 +26,7 @@ Works with both Apple Music streaming and local files in your library.
      ```
 
 2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**. In **Settings…** (⌘,) you can hide the rate, or choose **Detailed** to also see the next track's rate and each step of a switch (⚙︎ waiting for Core Audio, a countdown for the extra delay, ··· for the ready script).
-3. Play music in the Music app, and the sample rate follows each track automatically. To pause this, turn off **Auto Switch Sample Rate for Music App** in the menu bar icon (the icon dims).
+3. Play music in the Music app, and the sample rate follows each track automatically.
 4. The first time, macOS asks whether the app may control Music. Click **Allow**. This is needed to pause/resume while switching and to read the sample rate of local files.
 
 ## Setting the Wait Time

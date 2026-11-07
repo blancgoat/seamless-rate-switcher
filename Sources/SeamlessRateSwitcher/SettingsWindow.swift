@@ -15,8 +15,6 @@ enum SettingsKey {
     /// 샘플레이트 표기: short(44.1k) / shortHz(44.1kHz) / full(44100) / fullHz(44100 Hz).
     /// 메뉴바에만 쓴다 (메뉴 안은 44100 Hz로 고정)
     static let rateFormat = "rateFormat"
-    /// 샘플레이트 자동 전환. 예전에 지운 같은 기능의 키(autoSwitchEnabled)는 꺼 둔 채 남아 있을 수 있어 새 키를 쓴다
-    static let autoSwitch = "autoSwitch"
 
     static let maxDelayMs = 20000
 }

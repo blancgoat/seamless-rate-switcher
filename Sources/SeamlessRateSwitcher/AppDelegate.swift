@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         Self.keepLegacyDefaultDelay()
         Self.migrateDefaultsFromOldName()
         UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs,
-                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.rateFormat: RateFormat.short.rawValue, SettingsKey.autoSwitch: true])
+                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.rateFormat: RateFormat.short.rawValue])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
@@ -40,13 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
         applySettleDelay()
         applyReadyScript()
-        applyAutoSwitch()
         // 메뉴나 설정 창에서 바꾼 값을 바로 적용한다
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             applySettleDelay()
             applyReadyScript()
-            applyAutoSwitch()
             updateTitle()
         }
         switcher.onMessage = { [weak self] message in
@@ -115,8 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         refreshMenuStatus()
         // 메뉴가 열려 있고 시간이 흐르는 줄이 있을 때만 계속 다시 그린다
         setTitleTicking(shown.ticking || (statusMenuOpen && steps.needsTicking))
-        // 자동 전환을 끄면 아이콘을 흐리게 해서 앱이 쉬고 있음을 알린다
-        let disabled = !switcher.isRunning || !switcher.isEnabled
+        // Music 로그 수신이 멈추면 아이콘을 흐리게 해서 앱이 동작하지 않음을 알린다
+        let disabled = !switcher.isRunning
         if button.appearsDisabled != disabled { button.appearsDisabled = disabled }
     }
 
@@ -162,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             nextShown = switcher.nextRate.map { ($0, now) }
         }
         steps.track(phase: switcher.phase, outcome: switcher.lastOutcome, nextRate: switcher.nextRate,
-                    deviceRate: rate, enabled: switcher.isEnabled)
+                    deviceRate: rate)
         let phase = switcher.phase
         guard phase != lastPhase else { return }
         if phase == .idle {
@@ -204,7 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
                 }
                 return Shown(text: "\(current) ✓", ticking: true)
             }
-            if let next = nextShown, switcher.isEnabled {
+            if let next = nextShown {
                 let text = "\(current) → (\(Self.displayRate(next.rate)))"
                 let tip = L("Next track: %@", Self.displayRate(next.rate))
                 if next.rate != rate { return Shown(text: text, tip: tip) }
@@ -362,12 +360,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
         menu.addItem(.separator())
 
-        // 앱의 주 기능이라 설정 창이 아닌 메뉴에 둔다. Music이 스스로 rate를 맞추게 되면 이것만 끄면 된다
-        let auto = NSMenuItem(title: L("Auto Switch Sample Rate for Music App"), action: #selector(toggleAutoSwitch), keyEquivalent: "")
-        auto.target = self
-        auto.state = switcher.isEnabled ? .on : .off
-        menu.addItem(auto)
-
         let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
@@ -408,11 +400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     private var settleEnabled: Bool { UserDefaults.standard.bool(forKey: Self.settleEnabledKey) }
     private var settleDelayMs: Int { UserDefaults.standard.integer(forKey: Self.settleDelayKey) }
-    private func applyAutoSwitch() {
-        let enabled = UserDefaults.standard.bool(forKey: SettingsKey.autoSwitch)
-        if switcher.isEnabled != enabled { switcher.isEnabled = enabled }
-    }
-
     private weak var settleSlider: NSSlider?
     private weak var settleField: NSTextField?
 
@@ -557,10 +544,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     @objc private func openActivity() {
         activityWindow.show()
-    }
-
-    @objc private func toggleAutoSwitch() {
-        UserDefaults.standard.set(!switcher.isEnabled, forKey: SettingsKey.autoSwitch)
     }
 
     @objc private func openSettings() {

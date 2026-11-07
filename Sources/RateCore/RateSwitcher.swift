@@ -28,22 +28,6 @@ public final class RateSwitcher {
     public let dryRun: Bool
     public private(set) var target: Target?
 
-    /// 꺼 두면 곡 판단은 계속하되 장치도 Music도 건드리지 않는다 (Music이 스스로 rate를 맞추게 되는 경우 등).
-    /// 끄는 순간 붙잡아 둔 일시정지는 풀고, 다시 켜면 지금 곡의 rate를 적용한다.
-    public var isEnabled = true {
-        didSet {
-            guard isEnabled != oldValue else { return }
-            if isEnabled {
-                if let target { setRate(target.sampleRate, reason: target.reason, then: .resume) }
-            } else {
-                disarmEndWatch()
-                afterTransition = nil
-                runningReadyScript?.cancel()
-                releaseHold()
-            }
-        }
-    }
-
     /// rate를 바꿀 때 Music을 일시정지하고, 장치가 변경을 확인한 뒤 이 시간만큼 더 기다렸다가 재개한다.
     /// 인터페이스가 클럭을 다시 잡는 시간은 Mac 쪽에 신호가 없어서 사용자가 정한다. nil이면 일시정지하지 않는다.
     public var settleDelay: TimeInterval?
@@ -196,7 +180,7 @@ public final class RateSwitcher {
             (player, item, format, action) = (p, i, f, switchInFlight || heldPause != nil ? resumeAction : .resume)
         }
         let reason = "P/\(player) \(item) \(format.codec)"
-        if isEnabled && inTransition && settleDelay != nil && AudioDevice.defaultOutput?.nominalSampleRate != format.sampleRate {
+        if inTransition && settleDelay != nil && AudioDevice.defaultOutput?.nominalSampleRate != format.sampleRate {
             afterTransition = (format.sampleRate, reason)
             onMessage?(.info(L("Song transition in progress, switching after it ends")))
             return
@@ -234,10 +218,6 @@ public final class RateSwitcher {
         }
         guard !dryRun else {
             onMessage?(.action("→ rate \(Int(rate))  (\(reason), dry-run)"))
-            return
-        }
-        guard isEnabled else {
-            onMessage?(.info(L("Auto switch off, not applying %ld  (%@)", Int(rate), reason)))
             return
         }
         guard let device = AudioDevice.defaultOutput else {
@@ -518,7 +498,7 @@ public final class RateSwitcher {
     /// 다음 곡의 rate가 지금과 다르면, 현재 곡이 끝나기 직전에 멈추도록 감시를 건다.
     /// 곡이 넘어간 뒤에 멈추면 새 곡 앞부분이 잠깐 새어 나가므로, 넘어가기 전에 멈추는 게 근본 해결.
     private func upcomingPrepared(player: String, item: String, format: MusicLogTracker.Format) {
-        guard isEnabled, settleDelay != nil, !dryRun, !switchInFlight else { return }
+        guard settleDelay != nil, !dryRun, !switchInFlight else { return }
         guard let device = AudioDevice.defaultOutput,
               device.nominalSampleRate != format.sampleRate, device.supports(format.sampleRate) else {
             disarmEndWatch()
@@ -565,7 +545,7 @@ public final class RateSwitcher {
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(remaining - preEndLead, 0)) { [self] in
-                    guard generation == endWatchGeneration, settleDelay != nil, isEnabled else { return }
+                    guard generation == endWatchGeneration, settleDelay != nil else { return }
                     disarmEndWatch()
                     let lead = Int(min(remaining, preEndLead) * 1000)
                     onMessage?(.info(overlaps ? L("Pausing %ldms before the song transition", lead)

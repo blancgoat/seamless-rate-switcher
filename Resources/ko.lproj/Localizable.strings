@@ -80,8 +80,6 @@
 "Waiting the extra delay…" = "추가 대기 중…";
 "Running the ready script…" = "준비 확인 스크립트 실행 중…";
 "Next track: %@" = "다음 곡: %@";
-"Auto Switch Sample Rate for Music App" = "Music 앱 샘플레이트 자동 전환";
-"Auto switch off, not applying %ld  (%@)" = "자동 전환 꺼짐, %1$ld 적용 안 함  (%2$@)";
 "Instead of a fixed delay, a script can tell when the audio interface is ready." = "고정 대기 시간 대신, 오디오 인터페이스가 준비됐는지 확인하는 스크립트를 쓸 수 있습니다.";
 "No confirmation from the device" = "장치 확인 알림 없음";
 "Couldn’t set the sample rate" = "샘플레이트 변경 실패";
