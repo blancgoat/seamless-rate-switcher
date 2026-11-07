@@ -102,7 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             if button.font != Self.titleFont { button.font = Self.titleFont }
             let text = rateStyle == .simple ? rate.map { " " + Self.displayRate($0) } ?? "" : ""
             // 메뉴가 열려 있으면 0.1초마다 불리므로 바뀐 것만 넣는다
-            if button.title != text { button.title = text }
+            if button.title != text {
+                button.title = text
+                titleWidth = nil
+                applyStatusItemLength()
+            }
         }
         // 애니메이션 중에는 이미지가 프레임마다 바뀌므로 설명은 버튼에 붙인다
         let tip = [switcher.isHoldingPlayback ? holdingNote : nil, stepTip].compactMap { $0 }.joined(separator: "\n")
@@ -230,7 +234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         view.frame = NSRect(x: 0, y: 0, width: 0, height: button.bounds.height)
         view.autoresizingMask = [.height]
         view.onWidthChange = { [weak self, weak view, weak button] width in
-            self?.statusItem.length = width
+            self?.titleWidth = width
+            self?.applyStatusItemLength()
             view?.frame = NSRect(x: 0, y: 0, width: width, height: button?.bounds.height ?? NSStatusBar.system.thickness)
         }
         button.title = ""
@@ -245,7 +250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         guard let titleView, let button = statusItem.button else { return }
         titleView.removeFromSuperview()
         self.titleView = nil
-        statusItem.length = NSStatusItem.variableLength
+        titleWidth = nil
+        applyStatusItemLength()
         button.image = shownIcon
     }
 
@@ -256,12 +262,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     func menuWillOpen(_ menu: NSMenu) {
         statusMenuOpen = true
+        heldLength = statusItem.button?.frame.width
         updateTitle()
     }
 
     func menuDidClose(_ menu: NSMenu) {
         statusMenuOpen = false
+        heldLength = nil
+        applyStatusItemLength()
         updateTitle()
+    }
+
+    /// 자세히 표시가 그리는 폭 (nil이면 버튼이 글자에 맞춰 정한다)
+    private var titleWidth: CGFloat?
+    /// 메뉴가 열려 있는 동안 붙잡아 둔 폭. 메뉴바 항목은 오른쪽 끝이 고정이라 폭이 줄면 왼쪽 끝이 움직이고,
+    /// 열린 메뉴도 그 왼쪽 끝을 따라 옆으로 움직인다 (✓가 사라질 때 등). 그동안은 줄이지 않고 남는 자리는 오른쪽에 비워 둔다.
+    /// 늘어나야 할 때는 글자가 잘리지 않게 늘린다.
+    private var heldLength: CGFloat?
+
+    private func applyStatusItemLength() {
+        let natural = titleWidth ?? statusItem.button.map { $0.fittingSize.width }
+        guard let natural else { return }
+        if let held = heldLength {
+            let length = max(held, natural)
+            heldLength = length
+            if statusItem.length != length { statusItem.length = length }
+        } else {
+            let length = titleWidth ?? NSStatusItem.variableLength
+            if statusItem.length != length { statusItem.length = length }
+        }
     }
 
     /// 장치 줄(전환 중이면 48kHz → 96kHz)과 단계 스택을 지금 상태에 맞춘다
