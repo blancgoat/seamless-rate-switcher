@@ -356,8 +356,9 @@ public final class RateSwitcher {
                 proceed()
             }
         }
-        // 일시정지 명령을 먼저 보내 두고, 그동안 음소거한다 (장치 element마다 몇 ms씩 걸려 일시정지를 늦추지 않게)
-        muteForSwitch(device)
+        // 일시정지 명령을 먼저 보내 두고, 그동안 음소거한다 (장치 element마다 몇 ms씩 걸려 일시정지를 늦추지 않게).
+        // 대기 시간이 0이고 스크립트도 없으면 사용자가 바로 소리가 나는 장치로 정해 둔 것이라 음소거하지 않는다
+        if readyScript != nil || settleDelay > 0 { muteForSwitch(device) }
     }
 
     /// 진행 중인 전환의 기다림에 합류: 다시 일시정지만 하고, 재개는 그 전환이 끝날 때 한다.
