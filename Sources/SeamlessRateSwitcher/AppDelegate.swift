@@ -98,18 +98,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let font = Self.titleFont
         if button.font != font { button.font = font }
         let text = shown.text.isEmpty ? "" : " " + shown.text
-        if let drawnTitle, drawnTitle == (text, shown.hiddenTail) {
+        let minWidth = shown.minWidth ?? 0
+        if let drawnTitle, drawnTitle == (text, shown.hiddenTail, minWidth) {
             // 그대로
-        } else if shown.hiddenTail > 0 {
-            // 끝의 hiddenTail 글자는 자리만 차지하고 투명하게 그려 폭이 출렁이지 않게 한다 (스크립트 대기 점 애니메이션)
+        } else if shown.hiddenTail > 0 || minWidth > 0 {
             let title = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
-            title.addAttribute(.foregroundColor, value: NSColor.clear,
-                               range: NSRange(location: title.length - shown.hiddenTail, length: shown.hiddenTail))
+            // 끝의 hiddenTail 글자는 자리만 차지하고 투명하게 그려 폭이 출렁이지 않게 한다 (스크립트 대기 점 애니메이션)
+            if shown.hiddenTail > 0 {
+                title.addAttribute(.foregroundColor, value: NSColor.clear,
+                                   range: NSRange(location: title.length - shown.hiddenTail, length: shown.hiddenTail))
+            }
+            // 전환 중에는 가장 긴 표시의 폭에 맞춰 뒤에 보이지 않는 여백을 붙인다
+            let gap = minWidth - title.size().width
+            if gap > 0.5 {
+                let spacer = NSTextAttachment()
+                spacer.image = NSImage(size: NSSize(width: gap, height: 1))
+                title.append(NSAttributedString(attachment: spacer))
+            }
             button.attributedTitle = title
         } else {
             button.title = text
         }
-        drawnTitle = (text, shown.hiddenTail)
+        drawnTitle = (text, shown.hiddenTail, minWidth)
         refreshMenuStatus()
         // 메뉴가 열려 있고 시간이 흐르는 줄이 있을 때만 계속 다시 그린다
         setTitleTicking(shown.ticking || (statusMenuOpen && steps.needsTicking))
@@ -151,6 +161,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         var ticking = false
         /// 끝에서 이만큼은 투명하게 그린다
         var hiddenTail = 0
+        /// 이 폭보다 좁으면 뒤에 보이지 않는 여백을 붙인다 (전환 중 폭 고정)
+        var minWidth: CGFloat? = nil
+    }
+
+    /// 진행 중인 전환(예정 표시부터 ✓까지)의 이전·새 rate와, 그동안 나올 표시 중 가장 넓은 폭.
+    /// 단계마다 글자 길이가 달라 메뉴바가 흔들리지 않게, 전환이 끝날 때까지 이 폭을 유지한다
+    private var switchSlot: (from: Double?, to: Double, width: CGFloat)?
+
+    private static func slotWidth(from: Double?, to: Double) -> CGFloat {
+        let old = from.map(displayRate) ?? ""
+        let new = displayRate(to)
+        let candidates = ["\(old) → (\(new))", "\(old) → \(new)", "\(new) ⚙︎", "\(new) 20.0s", "\(new) ···", "\(new) ✓", "\(new) ?"]
+        return candidates.map { NSAttributedString(string: " " + $0, attributes: [.font: titleFont]).size().width }.max() ?? 0
     }
 
     /// 단계가 바뀐 시각과 전환 결과를 기록한다. 메뉴바 표시 설정과 관계없이 메뉴에서도 쓰므로 항상 부른다
@@ -163,6 +186,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
                     deviceRate: rate)
         let phase = switcher.phase
         guard phase != lastPhase else { return }
+        if lastPhase == .idle, let to = phase.target {
+            switchSlot = (rate, to, Self.slotWidth(from: rate, to: to))
+        }
         if phase == .idle {
             shownOutcome = switcher.lastOutcome
             // 확실하지 않게 끝났으면 알아챌 수 있게 조금 더 오래 보여 준다. 그만둔 전환은 표시하지 않는다
@@ -172,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             case .cancelled: nil
             }
             doneUntil = hold.map(now.addingTimeInterval)
+            if doneUntil == nil { switchSlot = nil }
         } else {
             doneUntil = nil
         }
@@ -179,6 +206,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     }
 
     private func detailedTitle(rate: Double?) -> Shown {
+        var shown = detailedContent(rate: rate)
+        shown.minWidth = switchSlot?.width
+        return shown
+    }
+
+    private func detailedContent(rate: Double?) -> Shown {
         let now = Date()
         let phase = switcher.phase
         let current = rate.map(Self.displayRate) ?? ""
@@ -202,6 +235,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
                 }
                 return Shown(text: "\(current) ✓", ticking: true)
             }
+            // 결과 표시가 끝났으면 폭 고정도 푼다
+            switchSlot = nil
             if let next = nextShown {
                 let text = "\(current) → (\(Self.displayRate(next.rate)))"
                 let tip = L("Next track: %@", Self.displayRate(next.rate))
@@ -305,7 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     }
 
     /// 마지막으로 메뉴바에 그린 글자 (같으면 다시 넣지 않는다)
-    private var drawnTitle: (text: String, hiddenTail: Int)?
+    private var drawnTitle: (text: String, hiddenTail: Int, minWidth: CGFloat)?
     private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
 
     private static var rateFormat: RateFormat {
