@@ -82,50 +82,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         // 앱이 Music을 일시정지해 둔 동안은 쉼표로 바꿔서, 멈춘 게 정상 동작임을 알린다
         setIcon(switcher.isHoldingPlayback ? .rest : .note)
         let holdingNote = L("Paused while the audio interface switches sample rate. Playback resumes automatically.")
-        // 애니메이션 중에는 이미지가 프레임마다 바뀌므로 설명은 버튼에 붙인다
-        let shown: Shown
-        switch rateStyle {
-        case .off: shown = Shown(text: "")
-        case .simple: shown = Shown(text: rate.map(Self.displayRate) ?? "")
-        case .detailed: shown = detailedTitle(rate: rate)
+        // Music 로그 수신이 멈추면 아이콘을 흐리게 해서 앱이 동작하지 않음을 알린다
+        let disabled = !switcher.isRunning
+        var stepTip: String?
+        var ticking = false
+        if rateStyle == .detailed {
+            // 글자 일부만 움직이고 색을 바꾸려고 직접 그린다
+            let detailed = detailedModel(rate: rate)
+            stepTip = detailed.tip
+            ticking = detailed.ticking
+            let view = titleView ?? makeTitleView(in: button)
+            view.dimmed = disabled
+            view.set(detailed.model)
+        } else {
+            removeTitleView()
+            if button.appearsDisabled != disabled { button.appearsDisabled = disabled }
+            if button.imagePosition != .imageLeading { button.imagePosition = .imageLeading }
+            if button.font != Self.titleFont { button.font = Self.titleFont }
+            let text = rateStyle == .simple ? rate.map { " " + Self.displayRate($0) } ?? "" : ""
+            // 메뉴가 열려 있으면 0.1초마다 불리므로 바뀐 것만 넣는다
+            if button.title != text { button.title = text }
         }
-        let tip = [switcher.isHoldingPlayback ? holdingNote : nil, shown.tip].compactMap { $0 }.joined(separator: "\n")
-        // 메뉴가 열려 있으면 0.1초마다 불리므로 바뀐 것만 넣는다
+        // 애니메이션 중에는 이미지가 프레임마다 바뀌므로 설명은 버튼에 붙인다
+        let tip = [switcher.isHoldingPlayback ? holdingNote : nil, stepTip].compactMap { $0 }.joined(separator: "\n")
         let label = tip.isEmpty ? "Seamless Rate Switcher" : tip
         if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
         if button.toolTip != (tip.isEmpty ? nil : tip) { button.toolTip = tip.isEmpty ? nil : tip }
-        if button.imagePosition != .imageLeading { button.imagePosition = .imageLeading }
-        let font = Self.titleFont
-        if button.font != font { button.font = font }
-        let text = shown.text.isEmpty ? "" : " " + shown.text
-        let minWidth = shown.minWidth ?? 0
-        if let drawnTitle, drawnTitle == (text, shown.hiddenTail, minWidth) {
-            // 그대로
-        } else if shown.hiddenTail > 0 || minWidth > 0 {
-            let title = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
-            // 끝의 hiddenTail 글자는 자리만 차지하고 투명하게 그려 폭이 출렁이지 않게 한다 (스크립트 대기 점 애니메이션)
-            if shown.hiddenTail > 0 {
-                title.addAttribute(.foregroundColor, value: NSColor.clear,
-                                   range: NSRange(location: title.length - shown.hiddenTail, length: shown.hiddenTail))
-            }
-            // 전환 중에는 가장 긴 표시의 폭에 맞춰 뒤에 보이지 않는 여백을 붙인다
-            let gap = minWidth - title.size().width
-            if gap > 0.5 {
-                let spacer = NSTextAttachment()
-                spacer.image = NSImage(size: NSSize(width: gap, height: 1))
-                title.append(NSAttributedString(attachment: spacer))
-            }
-            button.attributedTitle = title
-        } else {
-            button.title = text
-        }
-        drawnTitle = (text, shown.hiddenTail, minWidth)
         refreshMenuStatus()
         // 메뉴가 열려 있고 시간이 흐르는 줄이 있을 때만 계속 다시 그린다
-        setTitleTicking(shown.ticking || (statusMenuOpen && steps.needsTicking))
-        // Music 로그 수신이 멈추면 아이콘을 흐리게 해서 앱이 동작하지 않음을 알린다
-        let disabled = !switcher.isRunning
-        if button.appearsDisabled != disabled { button.appearsDisabled = disabled }
+        setTitleTicking(ticking || (statusMenuOpen && steps.needsTicking))
     }
 
     // MARK: - 메뉴바 샘플레이트 자세히 표시
@@ -142,53 +127,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     /// 메뉴바에 결과(✓ 또는 ?)를 이때까지 보여 준다
     private var doneUntil: Date?
     private var shownOutcome: RateSwitcher.Outcome = .ready
-    /// 다음 곡 rate와 그것을 처음 알게 된 시각 (지금과 같은 rate면 잠깐만 보여 준다)
-    private var nextShown: (rate: Double, since: Date)?
+    /// 진행 중인(또는 방금 끝난) 전환의 이전 rate. 장치는 전환 도중 새 rate가 되므로 시작할 때 기억해 둔다
+    private var switchFrom: Double?
     /// 카운트다운·점 애니메이션·잠깐 보이는 표시를 위해 제목을 다시 그리는 타이머
     private var titleTicker: Timer?
-
-    /// 평소        48k
-    /// 다음 곡을 앎  48k → (44.1k) (같은 rate면 2초만 48k → (48k)). 괄호는 "예정": 사용자가 다른 곡을 고르면 바뀔 수 있다
-    /// 일시정지 중  48k → 44.1k
-    /// Core Audio  44.1k ⚙︎
-    /// 추가 대기    44.1k 1.2s
-    /// 스크립트     44.1k ···
-    /// 완료         44.1k ✓ (1.5초)
-    /// 확실치 않음   44.1k ? (4초): 스크립트 실패·장치 확인 알림 없음 등으로 준비를 확인하지 못하고 재개
-    struct Shown {
-        var text: String
-        var tip: String? = nil
-        var ticking = false
-        /// 끝에서 이만큼은 투명하게 그린다
-        var hiddenTail = 0
-        /// 이 폭보다 좁으면 뒤에 보이지 않는 여백을 붙인다 (전환 중 폭 고정)
-        var minWidth: CGFloat? = nil
-    }
-
-    /// 진행 중인 전환(예정 표시부터 ✓까지)의 이전·새 rate와, 그동안 나올 표시 중 가장 넓은 폭.
-    /// 단계마다 글자 길이가 달라 메뉴바가 흔들리지 않게, 전환이 끝날 때까지 이 폭을 유지한다
-    private var switchSlot: (from: Double?, to: Double, width: CGFloat)?
-
-    private static func slotWidth(from: Double?, to: Double) -> CGFloat {
-        let old = from.map(displayRate) ?? ""
-        let new = displayRate(to)
-        let candidates = ["\(old) → (\(new))", "\(old) → \(new)", "\(new) ⚙︎", "\(new) 20.0s", "\(new) ···", "\(new) ✓", "\(new) ?"]
-        return candidates.map { NSAttributedString(string: " " + $0, attributes: [.font: titleFont]).size().width }.max() ?? 0
-    }
+    /// "자세히"일 때 버튼 위에 직접 그리는 뷰
+    private var titleView: RateTitleView?
 
     /// 단계가 바뀐 시각과 전환 결과를 기록한다. 메뉴바 표시 설정과 관계없이 메뉴에서도 쓰므로 항상 부른다
     private func trackPhase(rate: Double?) {
         let now = Date()
-        if switcher.nextRate != nextShown?.rate {
-            nextShown = switcher.nextRate.map { ($0, now) }
-        }
         steps.track(phase: switcher.phase, outcome: switcher.lastOutcome, nextRate: switcher.nextRate,
                     deviceRate: rate)
         let phase = switcher.phase
         guard phase != lastPhase else { return }
-        if lastPhase == .idle, let to = phase.target {
-            switchSlot = (rate, to, Self.slotWidth(from: rate, to: to))
-        }
+        if lastPhase == .idle { switchFrom = rate }
         if phase == .idle {
             shownOutcome = switcher.lastOutcome
             // 확실하지 않게 끝났으면 알아챌 수 있게 조금 더 오래 보여 준다. 그만둔 전환은 표시하지 않는다
@@ -198,53 +151,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             case .cancelled: nil
             }
             doneUntil = hold.map(now.addingTimeInterval)
-            if doneUntil == nil { switchSlot = nil }
         } else {
             doneUntil = nil
         }
         lastPhase = phase
     }
 
-    private func detailedTitle(rate: Double?) -> Shown {
-        var shown = detailedContent(rate: rate)
-        shown.minWidth = switchSlot?.width
-        return shown
-    }
-
-    private func detailedContent(rate: Double?) -> Shown {
+    /// 예정        44.1k → 96k            (96k 회색)
+    /// 일시정지·Core Audio 확인  44.1k → 96k ⚙︎   (96k 회색: 장치가 아직 44.1k)
+    /// 추가 대기    44.1k → 96k 1.2s      (44.1k 회색: 장치는 이미 96k)
+    /// 스크립트     44.1k → 96k ···
+    /// 완료         96k ✓ (1.5초) / 96k ? (4초): 준비를 확인하지 못하고 재개
+    private func detailedModel(rate: Double?) -> (model: RateTitleView.Model, tip: String?, ticking: Bool) {
         let now = Date()
-        let phase = switcher.phase
-        let current = rate.map(Self.displayRate) ?? ""
-        switch phase {
+        let current = rate ?? 0
+        // 이 전환에서 나올 수 있는 기호: 스크립트를 쓰면 ···, 아니면 정한 대기 시간의 카운트다운
+        // (대기 0ms면 카운트다운이 사실상 보이지 않으므로 넣지 않는다)
+        var slot = ["⚙︎", "✓", "?"]
+        if readyScriptURL != nil {
+            slot.append("···")
+        } else if settleDelayMs > 0 {
+            slot.append(Self.countdown(TimeInterval(settleDelayMs) / 1000))
+        }
+        func switching(_ to: Double, switched: Bool, status: String, dots: Int = 3) -> RateTitleView.Model {
+            RateTitleView.Model(stage: .switching(deviceSwitched: switched), from: switchFrom, to: to, status: status, dots: dots, statusSlot: slot)
+        }
+        switch switcher.phase {
         case let .pausing(to):
-            return Shown(text: "\(current) → \(Self.displayRate(to))", tip: L("Pausing Music…"))
+            return (switching(to, switched: false, status: "⚙︎"), L("Pausing Music…"), false)
         case let .confirming(to):
-            return Shown(text: "\(Self.displayRate(to)) ⚙︎", tip: L("Waiting for Core Audio to confirm the new sample rate…"))
+            return (switching(to, switched: false, status: "⚙︎"), L("Waiting for Core Audio to confirm the new sample rate…"), false)
         case let .settling(to, until):
             let left = max(until.timeIntervalSince(now), 0)
-            // 10초 미만이면 숫자 한 칸 폭의 공백(U+2007)을 앞에 붙여 10.0 → 9.9로 넘어갈 때도 폭이 같게 한다 (최대 20초)
-            let padded = (left < 9.95 ? "\u{2007}" : "") + String(format: "%.1fs", left)
-            return Shown(text: "\(Self.displayRate(to)) \(padded)", tip: L("Waiting the extra delay…"), ticking: true)
+            return (switching(to, switched: true, status: Self.countdown(left, from: TimeInterval(settleDelayMs) / 1000)), L("Waiting the extra delay…"), true)
         case let .readyScript(to):
             let dots = Int(now.timeIntervalSinceReferenceDate * 3) % 3 + 1
-            return Shown(text: "\(Self.displayRate(to)) ···", tip: L("Running the ready script…"), ticking: true, hiddenTail: 3 - dots)
+            return (switching(to, switched: true, status: "···", dots: dots), L("Running the ready script…"), true)
         case .idle:
             if let doneUntil, now < doneUntil {
                 if case let .uncertain(reason) = shownOutcome {
-                    return Shown(text: "\(current) ?", tip: L("Resumed without confirming the device is ready (%@)", reason), ticking: true)
+                    let model = RateTitleView.Model(stage: .done, from: switchFrom, to: current, status: "?", statusSlot: slot)
+                    return (model, L("Resumed without confirming the device is ready (%@)", reason), true)
                 }
-                return Shown(text: "\(current) ✓", ticking: true)
+                return (RateTitleView.Model(stage: .done, from: switchFrom, to: current, status: "✓", statusSlot: slot), nil, true)
             }
-            // 결과 표시가 끝났으면 폭 고정도 푼다
-            switchSlot = nil
-            if let next = nextShown {
-                let text = "\(current) → (\(Self.displayRate(next.rate)))"
-                let tip = L("Next track: %@", Self.displayRate(next.rate))
-                if next.rate != rate { return Shown(text: text, tip: tip) }
-                if now.timeIntervalSince(next.since) < 2 { return Shown(text: text, tip: tip, ticking: true) }
+            if let next = switcher.nextRate, next != current, rate != nil {
+                return (RateTitleView.Model(stage: .planned, from: current, to: next),
+                        L("Next track: %@", Self.displayRate(next)), false)
             }
-            return Shown(text: current)
+            return (RateTitleView.Model(stage: .plain, to: current), nil, false)
         }
+    }
+
+    /// 추가 대기 카운트다운 "1.2s". 대기가 10초 이상이면 10초 미만일 때 숫자 한 칸 폭의 공백(U+2007)을 앞에 붙여
+    /// 10.0 → 9.9로 넘어갈 때도 폭이 같게 한다 (대기가 짧으면 붙이지 않아 오른쪽이 비지 않게)
+    private static func countdown(_ seconds: TimeInterval, from total: TimeInterval? = nil) -> String {
+        let longest = total ?? seconds
+        let pad = longest >= 9.95 && seconds < 9.95 ? "\u{2007}" : ""
+        return pad + String(format: "%.1fs", seconds)
+    }
+
+    private func makeTitleView(in button: NSStatusBarButton) -> RateTitleView {
+        let view = RateTitleView(font: Self.titleFont)
+        view.rateText = { $0 > 0 ? Self.displayRate($0) : "" }
+        view.icon = shownIcon
+        let height = NSStatusBar.system.thickness
+        view.frame = NSRect(x: 0, y: 0, width: 0, height: height)
+        view.onWidthChange = { [weak self, weak view] width in
+            self?.statusItem.length = width
+            view?.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        }
+        button.title = ""
+        button.image = nil
+        button.appearsDisabled = false
+        button.addSubview(view)
+        titleView = view
+        return view
+    }
+
+    private func removeTitleView() {
+        guard let titleView, let button = statusItem.button else { return }
+        titleView.removeFromSuperview()
+        self.titleView = nil
+        statusItem.length = NSStatusItem.variableLength
+        button.image = shownIcon
     }
 
     // MARK: - 메뉴 안 전환 단계 스택 (메뉴바 표시 설정과 관계없이 항상)
@@ -313,23 +303,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     // MARK: - 아이콘 전환 애니메이션
 
     private var shownSymbol: NoteGlyph.Symbol?
+    /// 지금 보여 주는 아이콘 이미지 (자세히 표시로 바꿀 때 직접 그리는 뷰로 넘긴다)
+    private var shownIcon: NSImage?
+
+    /// 버튼 기본 이미지 또는 자세히 표시 뷰에 아이콘을 넣는다
+    private func showIcon(_ image: NSImage) {
+        shownIcon = image
+        if let titleView { titleView.icon = image } else { statusItem.button?.image = image }
+    }
     private var iconAnimation: Timer?
 
     /// 기호가 바뀌면 0.45초 동안 스프링처럼 튕기며 바꾼다 (동작 줄이기를 켠 경우는 바로 바꾼다)
     private func setIcon(_ symbol: NoteGlyph.Symbol) {
-        guard let button = statusItem.button, symbol != shownSymbol else { return }
+        guard symbol != shownSymbol else { return }
         let previous = shownSymbol
         shownSymbol = symbol
         iconAnimation?.invalidate()
         guard let previous, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            button.image = NoteGlyph.menuBarImage(symbol)
+            showIcon(NoteGlyph.menuBarImage(symbol))
             return
         }
         let duration: TimeInterval = 0.45
         let start = Date()
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             let progress = min(Date().timeIntervalSince(start) / duration, 1)
-            button.image = NoteGlyph.menuBarTransitionImage(from: previous, to: symbol, progress: progress)
+            self?.showIcon(NoteGlyph.menuBarTransitionImage(from: previous, to: symbol, progress: progress))
             if progress >= 1 {
                 timer.invalidate()
                 self?.iconAnimation = nil
@@ -339,8 +337,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         iconAnimation = timer
     }
 
-    /// 마지막으로 메뉴바에 그린 글자 (같으면 다시 넣지 않는다)
-    private var drawnTitle: (text: String, hiddenTail: Int, minWidth: CGFloat)?
     private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
 
     private static var rateFormat: RateFormat {
