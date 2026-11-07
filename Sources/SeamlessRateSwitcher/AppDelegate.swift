@@ -374,31 +374,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     // MARK: - 메뉴 (열 때마다 새로 구성)
 
+    /// 누를 수 있는 항목을 위에, 상태를 보여 주는 정보(장치·단계 스택·경고)를 아래에 둔다. 종료는 관례대로 맨 끝.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         // 메뉴가 닫혀 있는 동안 지나간 스택을 먼저 정리해, 열자마자 오래된 줄이 보이지 않게
         updateTitle()
 
-        if let device = AudioDevice.defaultOutput {
-            menu.addItem(disabled: "\(device.name) · \(Self.menuRateHz(device.nominalSampleRate))")
-            deviceMenuItem = menu.items.last
-            steps.install(in: menu, at: menu.numberOfItems)
-        } else {
-            menu.addItem(disabled: L("No output device"))
-        }
-        if !switcher.isRunning {
-            menu.addItem(disabled: "⚠︎ " + L("Stopped reading Music logs (please relaunch the app)"))
-        }
-        if isLosslessSwitcherRunning {
-            menu.addItem(disabled: "⚠︎ " + L("LosslessSwitcher is running. Both apps will fight over the sample rate"))
-        }
-
-        menu.addItem(.separator())
-
         let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
         settle.toolTip = L("Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends.")
+            + "\n" + L("Pause → change rate → Core Audio confirms the device switched → extra delay (or ready script) → resume")
         menu.addItem(settle)
         if settleEnabled {
             // 스크립트를 쓰면 스크립트가 준비 시점을 정하므로 추가 대기는 숨긴다.
@@ -420,6 +406,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let settingsItem = NSMenuItem(title: L("Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
+
+        if let device = AudioDevice.defaultOutput {
+            menu.addItem(disabled: "\(device.name) · \(Self.menuRateHz(device.nominalSampleRate))")
+            deviceMenuItem = menu.items.last
+            steps.install(in: menu, at: menu.numberOfItems)
+        } else {
+            menu.addItem(disabled: L("No output device"))
+        }
+        if !switcher.isRunning {
+            menu.addItem(disabled: "⚠︎ " + L("Stopped reading Music logs (please relaunch the app)"))
+        }
+        if isLosslessSwitcherRunning {
+            menu.addItem(disabled: "⚠︎ " + L("LosslessSwitcher is running. Both apps will fight over the sample rate"))
+        }
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: L("Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -459,32 +461,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     /// 슬라이더는 드래그하는 동안 바로 반영되고, 입력칸은 클릭해서 숫자를 넣고 Enter로 반영한다.
     /// (슬라이더 1px이 약 85ms라 10ms 단위는 입력칸으로 맞춘다)
     private func makeSettleSliderView() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 50))
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 50))
         let current = min(settleDelayMs, Self.sliderMaxMs)
 
-        let label = NSTextField(labelWithString: L("Extra delay"))
+        // 이 대기는 Core Audio가 장치의 rate 변경을 확인한 뒤부터 센다 (확인 시간은 0ms여도 항상 기다린다)
+        let label = NSTextField(labelWithString: L("Extra delay after Core Audio confirms"))
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         label.textColor = .secondaryLabelColor
-        label.frame = NSRect(x: 34, y: 28, width: 120, height: 16)
+        label.lineBreakMode = .byTruncatingTail
+        label.frame = NSRect(x: 34, y: 28, width: 160, height: 16)
 
         let field = NSTextField(string: "\(current)")
         field.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         field.alignment = .right
         field.controlSize = .small
         field.bezelStyle = .roundedBezel
-        field.frame = NSRect(x: 178, y: 26, width: 62, height: 20)
+        field.frame = NSRect(x: 198, y: 26, width: 62, height: 20)
         // Enter는 메뉴가 받으면 메뉴가 닫히므로 delegate에서 직접 처리한다 (control(_:textView:doCommandBy:))
         field.delegate = self
 
         let unit = NSTextField(labelWithString: "ms")
         unit.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         unit.textColor = .secondaryLabelColor
-        unit.frame = NSRect(x: 244, y: 28, width: 24, height: 16)
+        unit.frame = NSRect(x: 264, y: 28, width: 24, height: 16)
 
         let slider = MenuSlider(value: Double(current), minValue: 0, maxValue: Double(Self.sliderMaxMs),
                                 target: self, action: #selector(settleSliderChanged(_:)))
         slider.isContinuous = true
-        slider.frame = NSRect(x: 30, y: 4, width: 236, height: 20)
+        slider.frame = NSRect(x: 30, y: 4, width: 256, height: 20)
 
         [label, field, unit, slider].forEach(view.addSubview)
         settleSlider = slider
