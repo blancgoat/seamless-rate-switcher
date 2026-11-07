@@ -13,6 +13,15 @@ public struct AudioDevice: Hashable {
         return status == noErr && id != kAudioObjectUnknown ? AudioDevice(id: id) : nil
     }
 
+    public static var all: [AudioDevice] {
+        var addr = address(kAudioHardwarePropertyDevices)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids.map(AudioDevice.init(id:))
+    }
+
     public var name: String {
         var addr = Self.address(kAudioObjectPropertyName)
         var name: Unmanaged<CFString>?
@@ -52,6 +61,31 @@ public struct AudioDevice: Hashable {
         var addr = Self.address(kAudioDevicePropertyNominalSampleRate)
         var value = rate
         return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<Double>.size), &value)
+    }
+
+    /// 출력 음소거를 켤 수 있는 element (0 = 전체, 1… = 채널)
+    public var mutableOutputElements: [UInt32] {
+        (UInt32(0)...32).compactMap { element in
+            var addr = Self.address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, element: element)
+            guard AudioObjectHasProperty(id, &addr) else { return nil }
+            var settable: DarwinBoolean = false
+            return AudioObjectIsPropertySettable(id, &addr, &settable) == noErr && settable.boolValue ? element : nil
+        }
+    }
+
+    public func isOutputMuted(element: UInt32) -> Bool {
+        var addr = Self.address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, element: element)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value)
+        return value != 0
+    }
+
+    @discardableResult
+    public func setOutputMuted(_ muted: Bool, element: UInt32) -> OSStatus {
+        var addr = Self.address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, element: element)
+        var value: UInt32 = muted ? 1 : 0
+        return AudioObjectSetPropertyData(id, &addr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
     }
 
     public func onChange(_ selector: AudioObjectPropertySelector, queue: DispatchQueue = .main, _ handler: @escaping () -> Void) {

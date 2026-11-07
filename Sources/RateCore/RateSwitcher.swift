@@ -104,6 +104,10 @@ public final class RateSwitcher {
     /// 진행 중인 전환이 맞추는 rate
     private var inFlightRate: Double?
     private var rateConfirmed: (() -> Void)?
+    /// 전환을 시작하며 음소거한 장치와 element. 곡을 넘기면 Music이 일시정지를 새 곡 소리가 나가기 시작한 뒤에야
+    /// 적용해서(앱의 일시정지 명령은 그 전에 도착한다) 새 곡 앞부분이 잠깐 들린다. 장치 음소거는 Music을 거치지 않아 그 전에 걸린다.
+    private var mutedForSwitch: (device: AudioDevice, elements: [UInt32])?
+    private static let mutedForSwitchKey = "mutedForSwitch"
     private var runningReadyScript: ReadyScript?
     /// 미리 불러온 다음 곡 (rate가 지금과 다를 때만). 곡 끝 직전 일시정지 감시 대상
     private var upcoming: (player: String, item: String, format: MusicLogTracker.Format)?
@@ -190,6 +194,7 @@ public final class RateSwitcher {
 
     public func start() throws {
         DispatchQueue.global().async { MusicScripting.warmUp() }
+        restoreMuteLeftOver()
         watchDefaultOutput()
         observePlayerInfo()
         checkCurrentTrackOnStart()
@@ -197,6 +202,7 @@ public final class RateSwitcher {
     }
 
     public func stop() {
+        unmuteAfterSwitch()
         disarmEndWatch()
         runningReadyScript?.cancel()
         logProcess?.terminate()
@@ -331,6 +337,9 @@ public final class RateSwitcher {
                 self.onMessage?(result.paused
                     ? .info(L("Paused in %ldms (%ld tries)", ms, result.attempts))
                     : .warning(L("Couldn’t confirm pause in %ldms (%ld tries)", ms, result.attempts)))
+                // 멈춘 뒤에는 새 소리가 나가지 않는다. 이미 장치로 넘어간 소리가 빠질 시간만 두고 음소거를 푼다
+                // (준비 확인 스크립트의 확인 신호나 다른 앱 소리는 막지 않는다)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.unmuteAfterSwitch() }
                 // 일시정지를 확인하는 사이에 이 전환이 취소됐다 (releaseHold): 방금 멈춘 곡을 다시 재생
                 guard generation == self.switchGeneration || self.switchInFlight else {
                     let state = MusicScripting.PauseState(persistentID: result.state.persistentID, action: self.resumeAction)
@@ -347,6 +356,8 @@ public final class RateSwitcher {
                 proceed()
             }
         }
+        // 일시정지 명령을 먼저 보내 두고, 그동안 음소거한다 (장치 element마다 몇 ms씩 걸려 일시정지를 늦추지 않게)
+        muteForSwitch(device)
     }
 
     /// 진행 중인 전환의 기다림에 합류: 다시 일시정지만 하고, 재개는 그 전환이 끝날 때 한다.
@@ -403,7 +414,38 @@ public final class RateSwitcher {
     }
 
     /// 전환할 필요가 없어졌을 때: 붙잡아 둔 일시정지가 있으면 재개
+    private func muteForSwitch(_ device: AudioDevice) {
+        guard mutedForSwitch == nil else { return }
+        let started = Date()
+        // 사용자가 이미 음소거해 둔 element는 건드리지 않는다 (풀 때도 그대로 두도록)
+        let elements = device.mutableOutputElements.filter { !device.isOutputMuted(element: $0) }
+        guard !elements.isEmpty else { return }
+        elements.forEach { device.setOutputMuted(true, element: $0) }
+        mutedForSwitch = (device, elements)
+        // 음소거한 채로 앱이 끝나면 다음 실행 때 푼다
+        UserDefaults.standard.set(["uid": device.uid, "elements": elements.map(Int.init)], forKey: Self.mutedForSwitchKey)
+        onMessage?(.detail("mute on  \(elements.map(String.init).joined(separator: ","))  (\(Int(Date().timeIntervalSince(started) * 1000))ms)"))
+    }
+
+    private func unmuteAfterSwitch() {
+        guard let (device, elements) = mutedForSwitch else { return }
+        mutedForSwitch = nil
+        elements.forEach { device.setOutputMuted(false, element: $0) }
+        UserDefaults.standard.removeObject(forKey: Self.mutedForSwitchKey)
+        onMessage?(.detail("mute off"))
+    }
+
+    /// 지난 실행이 음소거를 풀지 못하고 끝났으면 푼다
+    private func restoreMuteLeftOver() {
+        guard let saved = UserDefaults.standard.dictionary(forKey: Self.mutedForSwitchKey) else { return }
+        UserDefaults.standard.removeObject(forKey: Self.mutedForSwitchKey)
+        guard let uid = saved["uid"] as? String, let elements = saved["elements"] as? [Int],
+              let device = AudioDevice.all.first(where: { $0.uid == uid }) else { return }
+        elements.forEach { device.setOutputMuted(false, element: UInt32($0)) }
+    }
+
     private func releaseHold() {
+        unmuteAfterSwitch()
         if heldPause != nil || switchInFlight { pendingOutcome = .cancelled }
         if heldPause != nil {
             switchGeneration += 1
@@ -421,6 +463,7 @@ public final class RateSwitcher {
 
     private func resumeHeld(generation: Int) {
         guard generation == switchGeneration else { return }
+        unmuteAfterSwitch()
         switchInFlight = false
         lastOutcome = pendingOutcome
         phase = .idle
