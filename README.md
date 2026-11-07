@@ -16,7 +16,7 @@ A menu bar app for the Music app on Mac.
 ## Getting Started
 
 Works with both Apple Music streaming and local files in your library.
-**Apple Silicon Macs only. Tested only on macOS ~~27.0.1~~ 27.2.**
+**Apple Silicon Macs only. Tested on macOS 27.0.1 and 27.2.**
 
 1. Download `Seamless-Rate-Switcher-<version>.zip` from [Releases](https://github.com/blancgoat/seamless-rate-switcher/releases/latest), unzip it, put `Seamless Rate Switcher.app` in `/Applications`, and launch it.
    - The app is not signed, so the first launch shows a warning that Apple cannot check it for malicious software. Go to **System Settings → Privacy & Security** and click **Open Anyway**. Or run the command below in Terminal and open the app again.
@@ -25,21 +25,24 @@ Works with both Apple Music streaming and local files in your library.
      xattr -dr com.apple.quarantine "/Applications/Seamless Rate Switcher.app"
      ```
 
-2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**. In **Settings…** (⌘,) you can hide the rate, or choose **Detailed** to also see the next track's rate and each step of a switch (⚙︎ waiting for Core Audio, a countdown for the extra delay, ··· for the ready script).
+2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**. You can change how it's shown in the menu bar icon → **Settings…** (⌘,).
 3. Play music in the Music app, and the sample rate follows each track automatically.
 4. The first time, macOS asks whether the app may control Music. Click **Allow**. This is needed to pause/resume while switching and to read the sample rate of local files.
 
-## Setting the Wait Time
+## DAC Sample Rate Change Wait Time
 
 How long a DAC needs after a sample rate change before it can actually play sound depends on the device. Choose one of two ways.
 
 ### Fixed Time
 <img width="300" height="265" alt="image" src="https://github.com/user-attachments/assets/d0a3b393-0608-4113-b7e3-627028e27136" />
 
-Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 0). You can also type a number in the box next to it and press Enter to set it in 10 ms steps.
+Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 0 seconds).
 
 - If **the beginning of the track gets cut off**, increase it.
 - If **the pause feels too long**, decrease it.
+
+> [!TIP]
+> For devices that can play sound as soon as the sample rate changes, like Mac built-in speakers or the RME Digiface USB, just keep the default of 0 seconds. (Checked on MacBook Pro speakers and the Digiface USB headphone output.)
 
 ### Ready Script
 <img width="321" height="232" alt="image" src="https://github.com/user-attachments/assets/e20f76a6-516d-4ad9-806c-d485eccc429f" />

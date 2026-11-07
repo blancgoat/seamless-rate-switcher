@@ -15,7 +15,7 @@ Mac의 Music 앱용 메뉴바 앱입니다.
 ## 시작하기
 
 Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 지원합니다.
-**Apple Silicon Mac 전용이며, macOS ~~27.0.1~~ 27.2에서만 테스트했습니다.**
+**Apple Silicon Mac 전용이며, macOS 27.0.1과 27.2에서 테스트했습니다.**
 
 1. [Releases](https://github.com/blancgoat/seamless-rate-switcher/releases/latest)에서 `Seamless-Rate-Switcher-<버전>.zip`을 받아 압축을 풀고, `Seamless Rate Switcher.app`을 `/Applications`에 넣고 실행합니다.
    - 서명되지 않은 앱이라 처음 열 때 "Apple이 악성 코드가 없는지 확인할 수 없음" 경고가 뜹니다. **시스템 설정 → 개인정보 보호 및 보안**에서 **그래도 열기**를 누르면 됩니다. 또는 터미널에서 아래 명령을 실행한 뒤 다시 엽니다.
@@ -24,33 +24,36 @@ Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 �
      xattr -dr com.apple.quarantine "/Applications/Seamless Rate Switcher.app"
      ```
 
-2. 메뉴바에 **♫ 44.1k** 처럼 음표와 현재 출력 장치의 샘플레이트가 표시됩니다. **Settings…** (⌘,)에서 숫자를 끄거나, **자세히**로 바꿔 다음 곡의 샘플레이트와 전환 단계(⚙︎ Core Audio 확인 대기, 추가 대기 카운트다운, ··· 준비 확인 스크립트)까지 볼 수 있습니다.
+2. 메뉴바에 **♫ 44.1k** 처럼 음표와 현재 출력 장치의 샘플레이트가 표시됩니다. 표시 방식은 메뉴바 아이콘 → **설정…** (⌘,)에서 바꿀 수 있습니다.
 3. Music 앱에서 곡을 재생하면 곡마다 샘플레이트가 자동으로 맞춰집니다.
 4. 처음 한 번 "Music을 제어하려고 합니다" 권한 창이 뜹니다. **허용**을 눌러 주세요. 전환 중 일시정지/재개와 로컬 파일의 샘플레이트 확인에 필요합니다.
 
-## 기다리는 시간 정하기
+## DAC 샘플레이트 변경 대기 시간
 
 샘플레이트가 바뀐 뒤 DAC가 실제로 소리를 낼 수 있게 되기까지의 시간은 장비마다 다릅니다. 두 가지 방법 중 하나로 정합니다.
 
 ### 고정 시간
 
-<img width="296" height="258" alt="image" src="https://github.com/user-attachments/assets/8e52f98f-0eca-4c92-9c0e-278343a2ac76" />
+<img width="318" height="273" alt="image" src="https://github.com/user-attachments/assets/2e49b722-22a3-42ca-b985-b83f6c76e79d" />
 
-메뉴바 아이콘 → **Pause While Switching** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 0초). 옆 칸에 숫자를 넣고 Enter를 눌러 10ms 단위로 맞출 수도 있습니다.
+메뉴바 아이콘 → **전환 시 일시정지** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 0초).
 
 - 곡이 바뀔 때 **앞부분이 잘리면** 늘립니다.
 - **멈춰 있는 시간이 길게 느껴지면** 줄입니다.
 
+> [!TIP]
+> Mac 내장 스피커, RME Digiface USB처럼 샘플레이트가 바뀌자마자 소리를 낼 수 있는 장비는 기본값(0초) 그대로 쓰면 됩니다 (MacBook Pro 스피커, Digiface USB 헤드폰 출력에서 확인).
+
 ### 준비 확인 스크립트
 
-<img width="334" height="235" alt="image" src="https://github.com/user-attachments/assets/2a7cfe7e-986d-4572-8908-0b8e52c5e820" />
+<img width="356" height="224" alt="image" src="https://github.com/user-attachments/assets/48b1e04e-42d7-4525-b40f-abdce5a69d34" />
 
 고정 시간 대신, 재생 장치(DAC)가 실제로 준비되는 순간에 바로 재생할 수도 있습니다.
 
 1. 재생 장치(DAC)가 새 샘플레이트로 준비를 마치면 **exit 0으로 끝나는** 스크립트를 준비합니다.
    - 앱은 스크립트가 끝나는 즉시 재생합니다. 0이 아닌 값으로 끝나면 실패로 기록하지만, 재생은 똑같이 바로 합니다.
    - 20초 안에 끝나지 않으면 스크립트를 중단하고 재생합니다.
-2. 메뉴바 아이콘 → **Pause While Switching** 아래 **Choose Ready Script…** 에서 그 스크립트를 등록합니다.
+2. 메뉴바 아이콘 → **전환 시 일시정지** 아래 **준비 확인 스크립트 선택…** 에서 그 스크립트를 등록합니다.
 
 MOTU UltraLite mk5용 스크립트가 예제로 준비되어 있습니다 (펌웨어 2.1.2 기준). 같은 모델을 쓰시는 분은 빌드해서 등록해 보세요.
 
