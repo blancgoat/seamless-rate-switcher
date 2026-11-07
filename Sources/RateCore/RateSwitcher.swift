@@ -424,7 +424,8 @@ public final class RateSwitcher {
         mutedForSwitch = (device, elements)
         // 음소거한 채로 앱이 끝나면 다음 실행 때 푼다
         UserDefaults.standard.set(["uid": device.uid, "elements": elements.map(Int.init)], forKey: Self.mutedForSwitchKey)
-        onMessage?(.detail("mute on  \(elements.map(String.init).joined(separator: ","))  (\(Int(Date().timeIntervalSince(started) * 1000))ms)"))
+        onMessage?(.detail(L("Muted output (channels %@, %ldms)", elements.map { $0 == 0 ? L("all") : String($0) }.joined(separator: ","),
+                             Int(Date().timeIntervalSince(started) * 1000))))
     }
 
     private func unmuteAfterSwitch() {
@@ -432,7 +433,7 @@ public final class RateSwitcher {
         mutedForSwitch = nil
         elements.forEach { device.setOutputMuted(false, element: $0) }
         UserDefaults.standard.removeObject(forKey: Self.mutedForSwitchKey)
-        onMessage?(.detail("mute off"))
+        onMessage?(.detail(L("Unmuted output")))
     }
 
     /// 지난 실행이 음소거를 풀지 못하고 끝났으면 푼다

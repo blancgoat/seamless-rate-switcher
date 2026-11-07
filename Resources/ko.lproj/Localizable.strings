@@ -103,3 +103,8 @@
 "Up to date" = "최신 버전입니다";
 "Download %@…" = "%@ 받기…";
 "Couldn’t check" = "확인하지 못했습니다";
+
+/* 곡을 넘길 때 잠깐 음소거 */
+"Muted output (channels %@, %ldms)" = "출력 음소거 (채널 %@, %ldms)";
+"Unmuted output" = "출력 음소거 해제";
+"all" = "전체";
