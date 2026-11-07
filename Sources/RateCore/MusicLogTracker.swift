@@ -36,6 +36,7 @@ public final class MusicLogTracker {
     private var leftItem: [String: String] = [:]         // player → 방금 떠난 item (전환 직후 그 곡의 정리 로그는 무시)
     private var pending: [String: String] = [:]          // player → 포맷을 기다리는 현재 item
     private var audioPlayers = Set<String>()             // AudioQueue를 만든 적 있는 플레이어 (나머지는 아트워크 영상 등)
+    private var queueFormats: [String: Format] = [:]     // AudioQueue(예: FH.21) → 만들 때의 포맷 (파일 재생기가 재사용할 때 씀)
 
     public init() {}
 
@@ -46,37 +47,38 @@ public final class MusicLogTracker {
     // 곡 전환·포맷은 바깥 플레이어(WX) 기준으로 묶는다.
     // [0x74c05bf400|P/WX] <0x74b0940000|I/LUM.01>, [0x7b5d978000|P/WX.2] <0x7b58af5c00|I/GOG.01>
     private static let itemLog = try! NSRegularExpression(pattern: #"\|P/(\w+(?:\.\d+)*)\] <0x[0-9a-f]+\|(I/[\w.]+)>"#)
+    // 파일 재생기(FigFilePlayer: 다운로드·캐시된 곡 등)는 위 형식 대신 AudioQueue를 만들기 직전에 이 로그로 곡을 알린다.
+    // 이걸 놓치면 직전 item(떠나는 스트리밍 곡)의 포맷으로 잘못 기록한다. 곡 전환 로그보다 먼저 온다.
+    // fp_buildAudioRenderPipelineForTrack: [0x7ad5cf4000|P/FH] called for <0x7ad1d69e00|I/FPZ.01>
+    private static let fileItemLog = try! NSRegularExpression(pattern: #"\|P/(\w+(?:\.\d+)*)\] called for <0x[0-9a-f]+\|(I/[\w.]+)>"#)
     // RP/WX.26 Creating AudioQueue with format:'qlac', framesPerPacket:4096, sampleRate:44100 (하위 플레이어: RP/WX.2.16)
-    private static let audioQueue = try! NSRegularExpression(pattern: #"RP/(\w+(?:\.\d+)*)\.\d+ Creating AudioQueue with format:'([^']+)'.*?sampleRate:(\d+(?:\.\d+)?)"#)
+    private static let audioQueue = try! NSRegularExpression(pattern: #"RP/((\w+(?:\.\d+)*)\.\d+) Creating AudioQueue with format:'([^']+)'.*?sampleRate:(\d+(?:\.\d+)?)"#)
+    // 파일 재생기는 다음 곡이 같은 포맷이면 AudioQueue를 새로 만들지 않고 이전 곡의 것을 그대로 쓴다 (AudioQueue 로그 없음).
+    // 대신 곡 전환 몇 초 전에 이 로그를 남기므로, 그 AudioQueue를 만들 때 기록한 포맷을 이 곡의 포맷으로 본다.
+    // itemfig_createRenderTriplesForAudio: <0x7ad20d9400|I/NOR.01> reusing old audio pipeline 0x7ad96f57c0 RP/FH.21
+    private static let reusedPipeline = try! NSRegularExpression(pattern: #"<0x[0-9a-f]+\|(I/[\w.]+)> reusing old audio pipeline 0x[0-9a-f]+ RP/((\w+(?:\.\d+)*)\.\d+)"#)
     // <P/WX|0x74b58ab380> currentItem KVO: updating current item from I/LUM.01 to I/XKF.01
     private static let currentItemChange = try! NSRegularExpression(pattern: #"<P/(\w+)\|0x[0-9a-f]+> currentItem KVO: updating current item from (\S+) to (\S+)"#)
 
     /// coremedia 로그 메시지 한 줄. 장치 rate를 바꿔야 하면 Decision을 돌려준다.
     public func handle(_ message: String) -> Decision? {
         if let m = Self.match(Self.audioQueue, message) {
-            let subPlayer = m[0]
+            let queue = m[0]
+            let subPlayer = m[1]
             let player = Self.outerPlayer(subPlayer)
             // 보통은 바로 앞 item 로그가 어느 곡의 AudioQueue인지 알려 준다. 파일 재생기로 재생되는 곡
             // (로컬 파일, 다운로드·캐시된 Apple Music AAC 등)은 그 로그가 없으므로, 곡이 막 바뀌어
             // 포맷을 기다리는 중이면 지금 곡의 것으로 본다 (다음 곡 미리 불러오기는 지금 곡 포맷을 안 뒤에 일어난다)
-            guard let item = lastItemLogged[subPlayer] ?? pending[player], let rate = Double(m[2]) else { return nil }
-            let format = Format(codec: m[1], sampleRate: rate)
-            audioPlayers.insert(player)
-            let previous = formats["\(player)|\(item)"]
-            if previous != format {
-                formats["\(player)|\(item)"] = format
-                onEvent?(.formatLearned(player: player, item: item, format: format))
-            }
-            if pending[player] == item {
-                pending[player] = nil
-                return .switchTo(player: player, item: item, format: format)
-            }
-            // 재생 중인 곡의 포맷이 바뀌었다. Music은 Apple Music 무손실 곡을 손실(AAC) 스트림으로 먼저 시작했다가
-            // 곧 무손실로 바꾸곤 한다 (예: qaac 48000 → 약 0.6초 뒤 qlac 96000)
-            if currentItem[player] == item, let previous, previous.sampleRate != rate {
-                return .formatChanged(player: player, item: item, format: format)
-            }
-            return nil
+            guard let rate = Double(m[3]) else { return nil }
+            let format = Format(codec: m[2], sampleRate: rate)
+            queueFormats[queue] = format
+            guard let item = lastItemLogged[subPlayer] ?? pending[player] else { return nil }
+            return learn(player: player, item: item, format: format)
+        }
+
+        if let m = Self.match(Self.reusedPipeline, message) {
+            guard let format = queueFormats[m[1]] else { return nil }
+            return learn(player: Self.outerPlayer(m[2]), item: m[0], format: format)
         }
 
         if let m = Self.match(Self.currentItemChange, message) {
@@ -103,12 +105,32 @@ public final class MusicLogTracker {
             return nil
         }
 
-        if let m = Self.match(Self.itemLog, message) {
+        if let m = Self.match(Self.itemLog, message) ?? Self.match(Self.fileItemLog, message) {
             // 곡이 넘어간 직후에도 Music은 떠난 곡을 정리하는 로그를 남긴다. 이걸 직전 item으로 잡으면
             // 다음 AudioQueue(특히 item 로그가 없는 로컬 파일)의 포맷을 떠난 곡의 것으로 잘못 기록하고,
             // 지금 곡이 아니니 "다음 곡 미리 불러오기"로 착각할 수 있다.
             guard m[1] != leftItem[Self.outerPlayer(m[0])] else { return nil }
             lastItemLogged[m[0]] = m[1]
+        }
+        return nil
+    }
+
+    /// AudioQueue 로그나 파이프라인 재사용 로그로 어느 곡의 포맷인지 알았을 때
+    private func learn(player: String, item: String, format: Format) -> Decision? {
+        audioPlayers.insert(player)
+        let previous = formats["\(player)|\(item)"]
+        if previous != format {
+            formats["\(player)|\(item)"] = format
+            onEvent?(.formatLearned(player: player, item: item, format: format))
+        }
+        if pending[player] == item {
+            pending[player] = nil
+            return .switchTo(player: player, item: item, format: format)
+        }
+        // 재생 중인 곡의 포맷이 바뀌었다. Music은 Apple Music 무손실 곡을 손실(AAC) 스트림으로 먼저 시작했다가
+        // 곧 무손실로 바꾸곤 한다 (예: qaac 48000 → 약 0.6초 뒤 qlac 96000)
+        if currentItem[player] == item, let previous, previous.sampleRate != format.sampleRate {
+            return .formatChanged(player: player, item: item, format: format)
         }
         return nil
     }
@@ -127,7 +149,7 @@ public final class MusicLogTracker {
 
 public enum MusicLog {
     /// log stream 필터. 위 세 종류 로그와 곡 전환 효과(AutoMix·크로스페이드) 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
-    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/")) OR (subsystem == "com.apple.Sonic" AND (eventMessage CONTAINS "Transition Generation Complete" OR eventMessage CONTAINS "resetting to .invalid")) OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "overlappedPlaybackEndTime" OR eventMessage CONTAINS "transition duration:" OR eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
+    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/" OR eventMessage CONTAINS "reusing old audio pipeline")) OR (subsystem == "com.apple.Sonic" AND (eventMessage CONTAINS "Transition Generation Complete" OR eventMessage CONTAINS "resetting to .invalid")) OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "overlappedPlaybackEndTime" OR eventMessage CONTAINS "transition duration:" OR eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
 
     /// 곡 전환 효과(곡 사이를 겹쳐 섞는 AutoMix·크로스페이드) 로그.
     /// - 전환 계획 (둘 다): 다음 곡을 준비하면 `TRANSITION: Setting overlappedPlaybackEndTime to 206.773000 on I/LWW`(지금 곡이
