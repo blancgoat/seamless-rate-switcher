@@ -10,8 +10,8 @@ enum SettingsKey {
     static let settleDelay = "settleDelayMs"
     /// 준비 확인 스크립트 경로 (없으면 고정 대기 시간만 사용)
     static let readyScript = "readyScriptPath"
-    /// 메뉴 막대 아이콘 옆에 장치 샘플레이트(예: 48k)를 표시
-    static let showRateInMenuBar = "showRateInMenuBar"
+    /// 메뉴 막대 아이콘 옆 샘플레이트 표시: off(아이콘만) / simple(48k) / detailed(다음 곡·전환 단계까지)
+    static let menuBarRateStyle = "menuBarRateStyle"
     /// 샘플레이트 자동 전환. 예전에 지운 같은 기능의 키(autoSwitchEnabled)는 꺼 둔 채 남아 있을 수 있어 새 키를 쓴다
     static let autoSwitch = "autoSwitch"
 
@@ -48,12 +48,21 @@ private final class SettingsViewState: ObservableObject {
 private struct SettingsView: View {
     @ObservedObject var state: SettingsViewState
 
-    @AppStorage(SettingsKey.showRateInMenuBar) private var showRate = true
+    @AppStorage(SettingsKey.menuBarRateStyle) private var rateStyle = "simple"
 
     var body: some View {
         Form {
             Section {
-                Toggle(L("Show Sample Rate in Menu Bar"), isOn: $showRate)
+                Picker(selection: $rateStyle) {
+                    Text(L("Off")).tag("off")
+                    Text(L("Current Sample Rate")).tag("simple")
+                    Text(L("Detailed")).tag("detailed")
+                } label: {
+                    Text(L("Sample Rate in Menu Bar"))
+                    Text(L("Current Sample Rate: the output device’s rate, like 48k.") + "\n"
+                         + L("Detailed: also the next track’s rate and each step of a switch.") + "\n"
+                         + L("⚙︎ waiting for Core Audio · 1.2s extra delay · ··· ready script"))
+                }
                 Toggle(L("Launch at Login"), isOn: Binding(get: { state.launchAtLogin }, set: setLaunchAtLogin))
             }
         }

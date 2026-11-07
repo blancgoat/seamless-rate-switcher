@@ -78,6 +78,40 @@ public final class RateSwitcher {
     /// 샘플레이트를 바꾸느라 앱이 Music을 일시정지해 둔 동안 true (메뉴바에 쉼표 표시용)
     public var isHoldingPlayback: Bool { heldPause != nil }
 
+    /// 일시정지하고 rate를 바꾸는 전환이 지금 어느 단계인지 (메뉴바 자세히 표시용)
+    public enum Phase: Equatable {
+        case idle
+        /// Music 일시정지를 보내고 확인하는 중
+        case pausing(to: Double)
+        /// rate를 보냈고 CoreAudio가 장치 rate가 바뀌었다고 알려 주기를 기다리는 중 (최대 2초)
+        case confirming(to: Double)
+        /// 고정 대기 시간 (준비 확인 스크립트가 실패했을 때 남은 대기 포함)
+        case settling(to: Double, until: Date)
+        /// 준비 확인 스크립트 실행 중
+        case readyScript(to: Double)
+    }
+    public private(set) var phase: Phase = .idle {
+        didSet { if phase != oldValue { onStatusChange?() } }
+    }
+
+    /// 마지막 전환이 어떻게 끝났는지. phase가 idle로 돌아가기 직전에 정한다 (메뉴바 자세히 표시용)
+    public enum Outcome: Equatable {
+        /// 장치 확인과 준비(대기 또는 스크립트)를 마치고 재개
+        case ready
+        /// 재개는 했지만 준비됐는지 확실하지 않다: 스크립트 실패, 장치 확인 알림 없음, rate 변경 실패
+        case uncertain(String)
+        /// 전환할 필요가 없어져 중간에 그만뒀다
+        case cancelled
+    }
+    public private(set) var lastOutcome: Outcome = .ready
+    /// 진행 중인 전환이 지금까지 겪은 문제 (끝날 때 lastOutcome이 된다)
+    private var pendingOutcome: Outcome = .ready
+
+    /// Music이 미리 불러온 다음 곡의 rate. 곡이 바뀌면 지운다 (메뉴바 자세히 표시용)
+    public private(set) var nextRate: Double? {
+        didSet { if nextRate != oldValue { onStatusChange?() } }
+    }
+
     /// 재개할 때 할 일. 가장 최근 전환이 정한 값이고, 붙잡는 동안 곡이 실제로 바뀌면 advance → rewind로 바뀐다.
     /// (일시정지 결과는 늦게 돌아올 수 있어서, 결과에 담긴 action 대신 이 값을 따른다)
     private var resumeAction: MusicScripting.ResumeAction = .resume
@@ -123,12 +157,14 @@ public final class RateSwitcher {
                 onMessage?(.detail(L("Format     P/%@ %@ = %@", player, item, format.description)))
                 // 지금 재생 중인 곡이 아닌 곡의 포맷 = 다음 곡 미리 불러오기
                 if item != tracker.currentItem(of: player) {
+                    nextRate = format.sampleRate
                     upcomingPrepared(player: player, item: item, format: format)
                 }
             case let .currentItemChanged(player, from, to):
                 guard let self else { return }
                 onMessage?(.detail(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
                 disarmEndWatch()
+                nextRate = nil
                 // 전환 계획은 떠난 곡의 것이다
                 plannedStart = nil
                 overlapEnd = nil
@@ -256,6 +292,8 @@ public final class RateSwitcher {
         switchInFlight = true
         inFlightRate = rate
         resumeAction = action
+        phase = .pausing(to: rate)
+        pendingOutcome = .ready
         disarmEndWatch()
         runningReadyScript?.cancel()
         runningReadyScript = nil
@@ -268,8 +306,12 @@ public final class RateSwitcher {
                 guard !finished else { return }
                 finished = true
                 rateConfirmed = nil
+                // 확인을 기다리는 사이 더 새로운 전환이 시작됐으면 그쪽에 맡긴다 (늦게 온 시간 초과로 단계를 덮어쓰지 않게)
+                guard generation == switchGeneration else { return }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
+                if !confirmed { pendingOutcome = .uncertain(L("No confirmation from the device")) }
                 if let readyScript {
+                    phase = .readyScript(to: rate)
                     onMessage?(confirmed
                         ? .info(L("Device confirmed in %ldms, running ready script", ms))
                         : .warning(L("No confirmation from device (%ldms), running ready script", ms)))
@@ -279,11 +321,14 @@ public final class RateSwitcher {
                 onMessage?(confirmed
                     ? .info(L("Device confirmed in %ldms, resuming after %ldms", ms, Int(settleDelay * 1000)))
                     : .warning(L("No confirmation from device (%ldms), resuming after %ldms", ms, Int(settleDelay * 1000))))
+                phase = .settling(to: rate, until: Date().addingTimeInterval(settleDelay))
                 DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) { self.resumeHeld(generation: generation) }
             }
             rateConfirmed = { finish(true) }
+            phase = .confirming(to: rate)
             guard applyRate(device: device, rate: rate, reason: reason) else {
                 rateConfirmed = nil
+                pendingOutcome = .uncertain(L("Couldn’t set the sample rate"))
                 resumeHeld(generation: generation)
                 return
             }
@@ -357,16 +402,20 @@ public final class RateSwitcher {
             switch outcome {
             case .ready:
                 lastReadyScriptFailure = nil
+                // 장치 확인 알림이 없었어도 스크립트가 준비를 확인했다
+                pendingOutcome = .ready
                 onMessage?(.info(L("Ready script finished in %ldms", Int(elapsed * 1000))))
                 resumeHeld(generation: generation)
             case .failed(let reason):
                 lastReadyScriptFailure = reason
+                pendingOutcome = .uncertain(L("Ready script failed: %@", reason))
                 let remaining = max(fallbackDelay - elapsed, 0)
                 if remaining == 0 {
                     onMessage?(.warning(L("Ready script failed (%@), resuming now", reason)))
                     resumeHeld(generation: generation)
                 } else {
                     onMessage?(.warning(L("Ready script failed (%@), resuming after %ldms", reason, Int(remaining * 1000))))
+                    phase = .settling(to: rate, until: Date().addingTimeInterval(remaining))
                     DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { self.resumeHeld(generation: generation) }
                 }
             }
@@ -375,6 +424,7 @@ public final class RateSwitcher {
 
     /// 전환할 필요가 없어졌을 때: 붙잡아 둔 일시정지가 있으면 재개
     private func releaseHold() {
+        if heldPause != nil || switchInFlight { pendingOutcome = .cancelled }
         if heldPause != nil {
             switchGeneration += 1
             resumeHeld(generation: switchGeneration)
@@ -384,12 +434,16 @@ public final class RateSwitcher {
             // 취소된 전환의 일시정지 결과는 switchWithPause에서 다시 재생한다.
             switchGeneration += 1
             switchInFlight = false
+            lastOutcome = pendingOutcome
+            phase = .idle
         }
     }
 
     private func resumeHeld(generation: Int) {
         guard generation == switchGeneration else { return }
         switchInFlight = false
+        lastOutcome = pendingOutcome
+        phase = .idle
         guard let held = heldPause else { return }
         heldPause = nil
         let state = MusicScripting.PauseState(persistentID: held.persistentID, action: resumeAction)

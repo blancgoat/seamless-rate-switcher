@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         Self.keepLegacyDefaultDelay()
         Self.migrateDefaultsFromOldName()
         UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs,
-                                                  SettingsKey.showRateInMenuBar: true, SettingsKey.autoSwitch: true])
+                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.autoSwitch: true])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
@@ -80,18 +80,174 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     private func updateTitle() {
         guard let button = statusItem.button else { return }
         let rate = AudioDevice.defaultOutput?.nominalSampleRate
+        trackPhase(rate: rate)
         // 앱이 Music을 일시정지해 둔 동안은 쉼표로 바꿔서, 멈춘 게 정상 동작임을 알린다
         setIcon(switcher.isHoldingPlayback ? .rest : .note)
         let holdingNote = L("Paused while the audio interface switches sample rate. Playback resumes automatically.")
         // 애니메이션 중에는 이미지가 프레임마다 바뀌므로 설명은 버튼에 붙인다
-        button.setAccessibilityLabel(switcher.isHoldingPlayback ? holdingNote : "Seamless Rate Switcher")
-        button.toolTip = switcher.isHoldingPlayback ? holdingNote : nil
-        button.imagePosition = .imageLeading
-        let showRate = UserDefaults.standard.bool(forKey: SettingsKey.showRateInMenuBar)
-        button.title = showRate ? rate.map { " " + Self.shortRate($0) } ?? "" : ""
-        button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
+        let shown: Shown
+        switch rateStyle {
+        case .off: shown = Shown(text: "")
+        case .simple: shown = Shown(text: rate.map(Self.shortRate) ?? "")
+        case .detailed: shown = detailedTitle(rate: rate)
+        }
+        let tip = [switcher.isHoldingPlayback ? holdingNote : nil, shown.tip].compactMap { $0 }.joined(separator: "\n")
+        // 메뉴가 열려 있으면 0.1초마다 불리므로 바뀐 것만 넣는다
+        let label = tip.isEmpty ? "Seamless Rate Switcher" : tip
+        if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
+        if button.toolTip != (tip.isEmpty ? nil : tip) { button.toolTip = tip.isEmpty ? nil : tip }
+        if button.imagePosition != .imageLeading { button.imagePosition = .imageLeading }
+        let font = Self.titleFont
+        if button.font != font { button.font = font }
+        let text = shown.text.isEmpty ? "" : " " + shown.text
+        if let drawnTitle, drawnTitle == (text, shown.hiddenTail) {
+            // 그대로
+        } else if shown.hiddenTail > 0 {
+            // 끝의 hiddenTail 글자는 자리만 차지하고 투명하게 그려 폭이 출렁이지 않게 한다 (스크립트 대기 점 애니메이션)
+            let title = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
+            title.addAttribute(.foregroundColor, value: NSColor.clear,
+                               range: NSRange(location: title.length - shown.hiddenTail, length: shown.hiddenTail))
+            button.attributedTitle = title
+        } else {
+            button.title = text
+        }
+        drawnTitle = (text, shown.hiddenTail)
+        refreshMenuStatus()
+        // 메뉴가 열려 있고 시간이 흐르는 줄이 있을 때만 계속 다시 그린다
+        setTitleTicking(shown.ticking || (statusMenuOpen && steps.needsTicking))
         // 자동 전환을 끄면 아이콘을 흐리게 해서 앱이 쉬고 있음을 알린다
-        button.appearsDisabled = !switcher.isRunning || !switcher.isEnabled
+        let disabled = !switcher.isRunning || !switcher.isEnabled
+        if button.appearsDisabled != disabled { button.appearsDisabled = disabled }
+    }
+
+    // MARK: - 메뉴바 샘플레이트 자세히 표시
+
+    enum RateStyle: String { case off, simple, detailed }
+
+    private var rateStyle: RateStyle {
+        UserDefaults.standard.string(forKey: SettingsKey.menuBarRateStyle).flatMap(RateStyle.init) ?? .simple
+    }
+
+    private var lastPhase: RateSwitcher.Phase = .idle
+    /// 메뉴 안에 쌓아 보여 주는 전환 단계
+    private let steps = SwitchSteps()
+    /// 메뉴바에 결과(✓ 또는 ?)를 이때까지 보여 준다
+    private var doneUntil: Date?
+    private var shownOutcome: RateSwitcher.Outcome = .ready
+    /// 다음 곡 rate와 그것을 처음 알게 된 시각 (지금과 같은 rate면 잠깐만 보여 준다)
+    private var nextShown: (rate: Double, since: Date)?
+    /// 카운트다운·점 애니메이션·잠깐 보이는 표시를 위해 제목을 다시 그리는 타이머
+    private var titleTicker: Timer?
+
+    /// 평소        48k
+    /// 다음 곡을 앎  48k → (44.1k) (같은 rate면 2초만 48k → (48k)). 괄호는 "예정": 사용자가 다른 곡을 고르면 바뀔 수 있다
+    /// 일시정지 중  48k → 44.1k
+    /// Core Audio  44.1k ⚙︎
+    /// 추가 대기    44.1k 1.2s
+    /// 스크립트     44.1k ···
+    /// 완료         44.1k ✓ (1.5초)
+    /// 확실치 않음   44.1k ? (4초): 스크립트 실패·장치 확인 알림 없음 등으로 준비를 확인하지 못하고 재개
+    struct Shown {
+        var text: String
+        var tip: String? = nil
+        var ticking = false
+        /// 끝에서 이만큼은 투명하게 그린다
+        var hiddenTail = 0
+    }
+
+    /// 단계가 바뀐 시각과 전환 결과를 기록한다. 메뉴바 표시 설정과 관계없이 메뉴에서도 쓰므로 항상 부른다
+    private func trackPhase(rate: Double?) {
+        let now = Date()
+        if switcher.nextRate != nextShown?.rate {
+            nextShown = switcher.nextRate.map { ($0, now) }
+        }
+        steps.track(phase: switcher.phase, outcome: switcher.lastOutcome, nextRate: switcher.nextRate,
+                    deviceRate: rate, enabled: switcher.isEnabled)
+        let phase = switcher.phase
+        guard phase != lastPhase else { return }
+        if phase == .idle {
+            shownOutcome = switcher.lastOutcome
+            // 확실하지 않게 끝났으면 알아챌 수 있게 조금 더 오래 보여 준다. 그만둔 전환은 표시하지 않는다
+            let hold: TimeInterval? = switch shownOutcome {
+            case .ready: 1.5
+            case .uncertain: 4
+            case .cancelled: nil
+            }
+            doneUntil = hold.map(now.addingTimeInterval)
+        } else {
+            doneUntil = nil
+        }
+        lastPhase = phase
+    }
+
+    private func detailedTitle(rate: Double?) -> Shown {
+        let now = Date()
+        let phase = switcher.phase
+        let current = rate.map(Self.shortRate) ?? ""
+        switch phase {
+        case let .pausing(to):
+            return Shown(text: "\(current) → \(Self.shortRate(to))", tip: L("Pausing Music…"))
+        case let .confirming(to):
+            return Shown(text: "\(Self.shortRate(to)) ⚙︎", tip: L("Waiting for Core Audio to confirm the new sample rate…"))
+        case let .settling(to, until):
+            let left = max(until.timeIntervalSince(now), 0)
+            // 10초 미만이면 숫자 한 칸 폭의 공백(U+2007)을 앞에 붙여 10.0 → 9.9로 넘어갈 때도 폭이 같게 한다 (최대 20초)
+            let padded = (left < 9.95 ? "\u{2007}" : "") + String(format: "%.1fs", left)
+            return Shown(text: "\(Self.shortRate(to)) \(padded)", tip: L("Waiting the extra delay…"), ticking: true)
+        case let .readyScript(to):
+            let dots = Int(now.timeIntervalSinceReferenceDate * 3) % 3 + 1
+            return Shown(text: "\(Self.shortRate(to)) ···", tip: L("Running the ready script…"), ticking: true, hiddenTail: 3 - dots)
+        case .idle:
+            if let doneUntil, now < doneUntil {
+                if case let .uncertain(reason) = shownOutcome {
+                    return Shown(text: "\(current) ?", tip: L("Resumed without confirming the device is ready (%@)", reason), ticking: true)
+                }
+                return Shown(text: "\(current) ✓", ticking: true)
+            }
+            if let next = nextShown, switcher.isEnabled {
+                let text = "\(current) → (\(Self.shortRate(next.rate)))"
+                let tip = L("Next track: %@Hz", Self.shortRate(next.rate))
+                if next.rate != rate { return Shown(text: text, tip: tip) }
+                if now.timeIntervalSince(next.since) < 2 { return Shown(text: text, tip: tip, ticking: true) }
+            }
+            return Shown(text: current)
+        }
+    }
+
+    // MARK: - 메뉴 안 전환 단계 스택 (메뉴바 표시 설정과 관계없이 항상)
+
+    private weak var deviceMenuItem: NSMenuItem?
+    private var statusMenuOpen = false
+
+    func menuWillOpen(_ menu: NSMenu) {
+        statusMenuOpen = true
+        updateTitle()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        statusMenuOpen = false
+        updateTitle()
+    }
+
+    /// 장치 줄(전환 중이면 48kHz → 96kHz)과 단계 스택을 지금 상태에 맞춘다
+    private func refreshMenuStatus() {
+        guard statusMenuOpen else { return }
+        if let device = AudioDevice.defaultOutput {
+            var line = "\(device.name) · \(Self.shortRate(device.nominalSampleRate))Hz"
+            if let to = switcher.phase.target, to != device.nominalSampleRate { line += " → \(Self.shortRate(to))Hz" }
+            if deviceMenuItem?.title != line { deviceMenuItem?.title = line }
+        }
+        steps.sync()
+    }
+
+    private func setTitleTicking(_ ticking: Bool) {
+        guard ticking != (titleTicker != nil) else { return }
+        titleTicker?.invalidate()
+        titleTicker = nil
+        guard ticking else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateTitle() }
+        RunLoop.main.add(timer, forMode: .common)  // 메뉴가 열려 있어도 돌게
+        titleTicker = timer
     }
 
     /// 기본 대기 시간이 5초에서 0으로 바뀌었다. 기존 사용자가 슬라이더를 건드린 적이 없으면 저장된 값이 없어
@@ -150,6 +306,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         iconAnimation = timer
     }
 
+    /// 마지막으로 메뉴바에 그린 글자 (같으면 다시 넣지 않는다)
+    private var drawnTitle: (text: String, hiddenTail: Int)?
+    private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
+
     /// 44100 → "44.1k", 96000 → "96k"
     static func shortRate(_ rate: Double) -> String {
         let k = rate / 1000
@@ -160,9 +320,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        // 메뉴가 닫혀 있는 동안 지나간 스택을 먼저 정리해, 열자마자 오래된 줄이 보이지 않게
+        updateTitle()
 
         if let device = AudioDevice.defaultOutput {
             menu.addItem(disabled: "\(device.name) · \(Self.shortRate(device.nominalSampleRate))Hz")
+            deviceMenuItem = menu.items.last
+            steps.install(in: menu, at: menu.numberOfItems)
         } else {
             menu.addItem(disabled: L("No output device"))
         }
