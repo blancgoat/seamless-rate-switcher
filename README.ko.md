@@ -1,4 +1,6 @@
 
+https://github.com/user-attachments/assets/25eea24a-f151-49ad-80e1-49e6b7735445
+
 # Seamless Rate Switcher
 
 [English](README.md) | **한국어**
@@ -15,7 +17,7 @@ Mac의 Music 앱용 메뉴바 앱입니다.
 ## 시작하기
 
 Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 지원합니다.
-**Apple Silicon Mac 전용이며, macOS ~~27.0.1~~ 27.2에서만 테스트했습니다.**
+**Apple Silicon Mac 전용이며, macOS 27.0.1과 27.2에서 테스트했습니다.**
 
 1. [Releases](https://github.com/blancgoat/seamless-rate-switcher/releases/latest)에서 `Seamless-Rate-Switcher-<버전>.zip`을 받아 압축을 풀고, `Seamless Rate Switcher.app`을 `/Applications`에 넣고 실행합니다.
    - 서명되지 않은 앱이라 처음 열 때 "Apple이 악성 코드가 없는지 확인할 수 없음" 경고가 뜹니다. **시스템 설정 → 개인정보 보호 및 보안**에서 **그래도 열기**를 누르면 됩니다. 또는 터미널에서 아래 명령을 실행한 뒤 다시 엽니다.
@@ -24,44 +26,56 @@ Music 앱의 Apple Music 스트리밍과 보관함의 로컬 파일을 모두 �
      xattr -dr com.apple.quarantine "/Applications/Seamless Rate Switcher.app"
      ```
 
-2. 메뉴바에 **♫ 44.1k** 처럼 음표와 현재 출력 장치의 샘플레이트가 표시됩니다. **Settings…** (⌘,)에서 숫자를 끄거나, **자세히**로 바꿔 다음 곡의 샘플레이트와 전환 단계(⚙︎ Core Audio 확인 대기, 추가 대기 카운트다운, ··· 준비 확인 스크립트)까지 볼 수 있습니다.
+2. 메뉴바에 **♫ 44.1k** 처럼 음표와 현재 출력 장치의 샘플레이트가 표시됩니다. 표시 방식은 메뉴바 아이콘 → **설정…** (⌘,)에서 바꿀 수 있습니다.
 3. Music 앱에서 곡을 재생하면 곡마다 샘플레이트가 자동으로 맞춰집니다.
 4. 처음 한 번 "Music을 제어하려고 합니다" 권한 창이 뜹니다. **허용**을 눌러 주세요. 전환 중 일시정지/재개와 로컬 파일의 샘플레이트 확인에 필요합니다.
 
-## 기다리는 시간 정하기
+## DAC 샘플레이트 변경 대기 시간
 
 샘플레이트가 바뀐 뒤 DAC가 실제로 소리를 낼 수 있게 되기까지의 시간은 장비마다 다릅니다. 두 가지 방법 중 하나로 정합니다.
 
 ### 고정 시간
 
-<img width="296" height="258" alt="image" src="https://github.com/user-attachments/assets/8e52f98f-0eca-4c92-9c0e-278343a2ac76" />
+<img width="318" height="273" alt="image" src="https://github.com/user-attachments/assets/2e49b722-22a3-42ca-b985-b83f6c76e79d" />
 
-메뉴바 아이콘 → **Pause While Switching** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 0초). 옆 칸에 숫자를 넣고 Enter를 눌러 10ms 단위로 맞출 수도 있습니다.
+메뉴바 아이콘 → **전환 시 일시정지** 아래 슬라이더로 0~20초 사이에서 정합니다 (기본 0초).
 
 - 곡이 바뀔 때 **앞부분이 잘리면** 늘립니다.
 - **멈춰 있는 시간이 길게 느껴지면** 줄입니다.
 
+> [!TIP]
+> Mac 내장 스피커, RME Digiface USB처럼 샘플레이트가 바뀌자마자 소리를 낼 수 있는 장비는 기본값(0초) 그대로 쓰면 됩니다 (MacBook Pro 스피커, Digiface USB 헤드폰 출력에서 확인).
+
 ### 준비 확인 스크립트
 
-<img width="334" height="235" alt="image" src="https://github.com/user-attachments/assets/2a7cfe7e-986d-4572-8908-0b8e52c5e820" />
+<img width="356" height="224" alt="image" src="https://github.com/user-attachments/assets/48b1e04e-42d7-4525-b40f-abdce5a69d34" />
 
 고정 시간 대신, 재생 장치(DAC)가 실제로 준비되는 순간에 바로 재생할 수도 있습니다.
 
 1. 재생 장치(DAC)가 새 샘플레이트로 준비를 마치면 **exit 0으로 끝나는** 스크립트를 준비합니다.
    - 앱은 스크립트가 끝나는 즉시 재생합니다. 0이 아닌 값으로 끝나면 실패로 기록하지만, 재생은 똑같이 바로 합니다.
    - 20초 안에 끝나지 않으면 스크립트를 중단하고 재생합니다.
-2. 메뉴바 아이콘 → **Pause While Switching** 아래 **Choose Ready Script…** 에서 그 스크립트를 등록합니다.
+2. 메뉴바 아이콘 → **전환 시 일시정지** 아래 **준비 확인 스크립트 선택…** 에서 그 스크립트를 등록합니다.
 
-MOTU UltraLite mk5용 스크립트가 예제로 준비되어 있습니다 (펌웨어 2.1.2 기준). 같은 모델을 쓰시는 분은 빌드해서 등록해 보세요.
+MOTU UltraLite mk5용 스크립트가 예제로 준비되어 있습니다 (펌웨어 2.1.2 기준). 같은 모델을 쓰시는 분은 빌드해서 등록해 보세요. 스크립트는 기다리는 동안 들리지 않는 아주 작은 고음(-90dBFS, 21.5~23kHz)을 내보내고, MOTU 출력 미터로 실제로 소리가 나가기 시작하는 순간을 확인합니다.
 
 ```bash
 example_ready_scripts/motu-ultralite-mk5/build.sh
 ```
 
+https://github.com/user-attachments/assets/3fccd980-f327-4b91-b236-d448a323d22f
+
+> 이 영상은 Apple Music과 YouTube를 동시에 틀어 둔 상태입니다.
+>
+> 샘플레이트가 바뀌면 Core Audio는 거의 바로 준비되기 때문에, YouTube는 그동안에도 계속 소리를 보냅니다. 하지만 DAC가 실제로 준비되기까지는 더 오래 걸리고, 그 시간은 장비마다 다릅니다. 준비될 때까지 DAC는 소리를 내지 않으므로 YouTube 소리의 앞부분은 그대로 사라집니다. (왼쪽: DAC에서 나는 소리, 오른쪽: Core Audio 소리)
+>
+> 반면 Apple Music은 Seamless Rate Switcher가 일시정지해 두었다가 DAC가 실제로 준비된 뒤에 재생하므로, 곡이 한순간도 잘리지 않습니다.
+>
+> DAC마다 동작이 다르기 때문에, Seamless Rate Switcher에서는 DAC마다 준비 확인 스크립트를 작성해 대응할 수 있습니다.
+
 ## 알아둘 점
 
-- **이 앱은 Music을 직접 제어합니다.** 샘플레이트가 바뀌는 곡에서는 Music이 몇 초간 일시정지되는데, DAC가 새 샘플레이트로 전환을 마칠 때까지 기다리는 정상 동작입니다. **재생 버튼을 누르지 말고 기다려 주세요.** 기다리는 동안 메뉴바 아이콘이 음표(♫)에서 쉼표(<img width="50" height="25" alt="image" src="https://github.com/user-attachments/assets/8fbe970e-9dab-426c-a7a4-7971d1e1f7e6" />)
-로 바뀌고, 다시 재생되면 음표로 돌아옵니다.
+- **이 앱은 Music을 직접 제어합니다.** 샘플레이트가 바뀌는 곡에서는 Music이 몇 초간 일시정지되는데, DAC가 새 샘플레이트로 전환을 마칠 때까지 기다리는 정상 동작입니다. **재생 버튼을 누르지 말고 기다려 주세요.** 기다리는 동안 메뉴바 아이콘이 음표(♫)에서 쉼표(<img width="24" height="24" alt="image" src="https://github.com/user-attachments/assets/db431284-549b-45bc-952f-b8609527a081" />)로 바뀌고, 다시 재생되면 음표로 돌아옵니다.
 - 앱을 켜기 전부터 재생 중이던 Apple Music 곡은 다음 곡부터 샘플레이트가 맞춰집니다. 로컬 파일은 바로 맞춰집니다.
 - 출력 장치가 지원하지 않는 샘플레이트는 건너뜁니다.
 - Music의 곡 전환 효과(AutoMix, 크로스페이드)를 켜 둔 상태에서도 동작하지만, 끄고 쓰시는 것을 추천합니다. 샘플레이트가 바뀌는 곡에서는 두 곡이 겹치기 시작하기 직전에 일시정지하기 때문에, 곡이 어색한 타이밍에 멈추는 것처럼 느껴질 수 있습니다.

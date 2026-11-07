@@ -1,4 +1,5 @@
-https://github.com/user-attachments/assets/e8b8c2ee-830b-4a9f-a59f-6587e2972266
+
+https://github.com/user-attachments/assets/25eea24a-f151-49ad-80e1-49e6b7735445
 
 # Seamless Rate Switcher
 
@@ -16,7 +17,7 @@ A menu bar app for the Music app on Mac.
 ## Getting Started
 
 Works with both Apple Music streaming and local files in your library.
-**Apple Silicon Macs only. Tested only on macOS ~~27.0.1~~ 27.2.**
+**Apple Silicon Macs only. Tested on macOS 27.0.1 and 27.2.**
 
 1. Download `Seamless-Rate-Switcher-<version>.zip` from [Releases](https://github.com/blancgoat/seamless-rate-switcher/releases/latest), unzip it, put `Seamless Rate Switcher.app` in `/Applications`, and launch it.
    - The app is not signed, so the first launch shows a warning that Apple cannot check it for malicious software. Go to **System Settings → Privacy & Security** and click **Open Anyway**. Or run the command below in Terminal and open the app again.
@@ -25,24 +26,29 @@ Works with both Apple Music streaming and local files in your library.
      xattr -dr com.apple.quarantine "/Applications/Seamless Rate Switcher.app"
      ```
 
-2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**. In **Settings…** (⌘,) you can hide the rate, or choose **Detailed** to also see the next track's rate and each step of a switch (⚙︎ waiting for Core Audio, a countdown for the extra delay, ··· for the ready script).
+2. The menu bar shows a note and the output device's current sample rate, like **♫ 44.1k**. You can change how it's shown in the menu bar icon → **Settings…** (⌘,).
 3. Play music in the Music app, and the sample rate follows each track automatically.
 4. The first time, macOS asks whether the app may control Music. Click **Allow**. This is needed to pause/resume while switching and to read the sample rate of local files.
 
-## Setting the Wait Time
+## DAC Sample Rate Change Wait Time
 
 How long a DAC needs after a sample rate change before it can actually play sound depends on the device. Choose one of two ways.
 
 ### Fixed Time
-<img width="300" height="265" alt="image" src="https://github.com/user-attachments/assets/d0a3b393-0608-4113-b7e3-627028e27136" />
 
-Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 0). You can also type a number in the box next to it and press Enter to set it in 10 ms steps.
+<img width="322" height="272" alt="image" src="https://github.com/user-attachments/assets/515f737e-ac67-46ac-a606-6ac04cc9c3b9" />
+
+Set it with the slider under **Pause While Switching** in the menu bar icon, anywhere from 0 to 20 seconds (default 0 seconds).
 
 - If **the beginning of the track gets cut off**, increase it.
 - If **the pause feels too long**, decrease it.
 
+> [!TIP]
+> For devices that can play sound as soon as the sample rate changes, like Mac built-in speakers or the RME Digiface USB, just keep the default of 0 seconds. (Checked on MacBook Pro speakers and the Digiface USB headphone output.)
+
 ### Ready Script
-<img width="321" height="232" alt="image" src="https://github.com/user-attachments/assets/e20f76a6-516d-4ad9-806c-d485eccc429f" />
+
+<img width="331" height="225" alt="image" src="https://github.com/user-attachments/assets/da35c63b-dc3e-4f78-a156-88c89c75d1d1" />
 
 Instead of a fixed time, playback can resume the moment the playback device (DAC) is actually ready.
 
@@ -51,15 +57,25 @@ Instead of a fixed time, playback can resume the moment the playback device (DAC
    - If the script doesn't finish within 20 seconds, it is stopped and playback resumes.
 2. Register the script with **Choose Ready Script…** under **Pause While Switching** in the menu bar icon.
 
-An example script for the MOTU UltraLite mk5 is included (based on firmware 2.1.2). If you have the same model, build it and register it.
+An example script for the MOTU UltraLite mk5 is included (based on firmware 2.1.2). If you have the same model, build it and register it. While waiting, the script plays an inaudible, very quiet high tone (-90 dBFS, 21.5–23 kHz) and watches the MOTU output meter to catch the moment sound actually starts coming out.
 
 ```bash
 example_ready_scripts/motu-ultralite-mk5/build.sh
 ```
 
+https://github.com/user-attachments/assets/3fccd980-f327-4b91-b236-d448a323d22f
+
+> In this video, Apple Music and YouTube are playing at the same time.
+>
+> When the sample rate changes, Core Audio becomes ready almost immediately, so YouTube keeps sending audio the whole time. The DAC, however, takes longer to actually be ready, and that time differs from device to device. Until it's ready, the DAC stays silent, so the start of YouTube's audio is simply lost. (Left: sound from the DAC, Right: sound from Core Audio)
+>
+> Apple Music, on the other hand, is paused by Seamless Rate Switcher and only resumes once the DAC is actually ready, so not a single moment of the track is cut off.
+>
+> Because every DAC behaves differently, Seamless Rate Switcher lets you write a ready script for each DAC to handle this.
+
 ## Good to Know
 
-- **This app controls Music directly.** On tracks where the sample rate changes, Music pauses for a few seconds. This is expected: it is waiting for the DAC to finish switching to the new rate. **Please don't press play — just wait.** While waiting, the menu bar icon changes from a note (♫) to a rest (<img width="50" height="25" alt="image" src="https://github.com/user-attachments/assets/8fbe970e-9dab-426c-a7a4-7971d1e1f7e6" />), and changes back to a note when playback resumes.
+- **This app controls Music directly.** On tracks where the sample rate changes, Music pauses for a few seconds. This is expected: it is waiting for the DAC to finish switching to the new rate. **Please don't press play — just wait.** While waiting, the menu bar icon changes from a note (♫) to a rest (<img width="24" height="24" alt="image" src="https://github.com/user-attachments/assets/db431284-549b-45bc-952f-b8609527a081" />), and changes back to a note when playback resumes.
 - For an Apple Music track that was already playing before the app launched, the sample rate is matched starting from the next track. Local files are matched right away.
 - Sample rates the output device doesn't support are skipped.
 - The app also works with Music's song transitions (AutoMix, Crossfade) turned on, but turning them off is recommended. On tracks where the sample rate changes, playback pauses right before the two tracks start to overlap, which can feel like the song stops at an awkward moment.
