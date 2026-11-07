@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         }
         switcher.onStatusChange = { [weak self] in self?.updateTitle() }
 
+
         do {
             try switcher.start()
         } catch {
@@ -215,11 +216,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let view = RateTitleView(font: Self.titleFont)
         view.rateText = { $0 > 0 ? Self.displayRate($0) : "" }
         view.icon = shownIcon
-        let height = NSStatusBar.system.thickness
-        view.frame = NSRect(x: 0, y: 0, width: 0, height: height)
-        view.onWidthChange = { [weak self, weak view] width in
+        // 기본 버튼이 아이콘과 글자 양옆에 두는 여백을 재서 똑같이 둔다 (아이콘 + " 48k" 버튼 폭 - 아이콘 - 글자)
+        if let cell = button.cell?.copy() as? NSButtonCell {
+            cell.image = NoteGlyph.menuBarImage(.note)
+            cell.imagePosition = .imageLeading
+            cell.font = Self.titleFont
+            cell.title = " " + Self.displayRate(48000)
+            let titleWidth = NSAttributedString(string: cell.title, attributes: [.font: Self.titleFont]).size().width
+            let spare = cell.cellSize.width - (cell.image?.size.width ?? 18) - titleWidth
+            if spare > 0 { view.padding = spare / 2 }
+        }
+        // 메뉴바 높이는 Mac마다 다르다(노치 등). 버튼 높이를 그대로 따라가야 아이콘·글자가 가운데에 온다
+        view.frame = NSRect(x: 0, y: 0, width: 0, height: button.bounds.height)
+        view.autoresizingMask = [.height]
+        view.onWidthChange = { [weak self, weak view, weak button] width in
             self?.statusItem.length = width
-            view?.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            view?.frame = NSRect(x: 0, y: 0, width: width, height: button?.bounds.height ?? NSStatusBar.system.thickness)
         }
         button.title = ""
         button.image = nil

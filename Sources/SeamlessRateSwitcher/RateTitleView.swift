@@ -39,9 +39,14 @@ final class RateTitleView: NSView {
     var dimmed = false { didSet { if dimmed != oldValue { needsDisplay = true } } }
 
     private let font: NSFont
-    private static let padding: CGFloat = 4
-    /// 기본 버튼(아이콘 + " 96k")과 같은 간격 (스크린샷 측정)
-    private static let iconGap: CGFloat = 6
+    /// 좌우 여백. 기본 버튼이 아이콘 양옆에 두는 여백 (실행 중 측정한 값)
+    var padding: CGFloat = 4
+    /// 기본 버튼(아이콘 + " 48k")과 같은 간격 (음표 상태 스크린샷 측정: 음표 끝 → 숫자 8pt)
+    private static let iconGap: CGFloat = 5
+    /// 줄 상자를 가운데 두면 기본 버튼보다 1.5pt 높게 그려진다 (음표 상태 스크린샷 측정).
+    /// 메뉴바 버튼 셀은 글자 위치를 알려 주지 않고(titleRect가 0), 화면 밖에 그려 보면 실제와 다른 자리에 그려져
+    /// 자동으로 잴 수 없다. 포인트 단위 차이라 Retina 배율·화면 해상도와 관계없이 같다
+    private static let textDrop: CGFloat = 1.5
     private static let space: CGFloat = 4
     private static let duration: CFTimeInterval = 0.32
 
@@ -133,20 +138,20 @@ final class RateTitleView: NSView {
     }
 
     private func layout(for model: Model) -> (pieces: [String: Piece], width: CGFloat) {
-        let x0 = Self.padding + (icon?.size.width ?? 18) + Self.iconGap
+        let x0 = padding + (icon?.size.width ?? 18) + Self.iconGap
         let toText = rateText(model.to)
         // rate 조각은 rate 값으로 구분한다: 평소 44.1k가 예정 표시의 왼쪽 44.1k로, 전환 뒤 96k가 평소 96k로 그대로 이어진다
         let toID = "rate:\(model.to)"
         guard let from = model.from, model.stage != .plain else {
             let pieces = [toID: Piece(text: toText, x: x0, alpha: 1, emphasis: 1)]
-            return (pieces, x0 + width(toText) + Self.padding)
+            return (pieces, x0 + width(toText) + padding)
         }
         let fromText = rateText(from)
         let arrowX = x0 + width(fromText) + Self.space
         let toX = arrowX + width("→") + Self.space
         let statusX = toX + width(toText) + Self.space
         let statusWidth = (model.statusSlot + [model.status ?? ""]).map(width).max() ?? 0
-        let switchingWidth = statusX + statusWidth + Self.padding
+        let switchingWidth = statusX + statusWidth + padding
         let fromID = "rate:\(from)"
         var pieces: [String: Piece] = [:]
         switch model.stage {
@@ -156,7 +161,7 @@ final class RateTitleView: NSView {
             pieces[fromID] = Piece(text: fromText, x: x0, alpha: 1, emphasis: 1)
             pieces["arrow"] = Piece(text: "→", x: arrowX, alpha: 1, emphasis: 0)
             pieces[toID] = Piece(text: toText, x: toX, alpha: 1, emphasis: 0)
-            return (pieces, toX + width(toText) + Self.padding)
+            return (pieces, toX + width(toText) + padding)
         case let .switching(deviceSwitched):
             pieces[fromID] = Piece(text: fromText, x: x0, alpha: 1, emphasis: deviceSwitched ? 0 : 1)
             pieces["arrow"] = Piece(text: "→", x: arrowX, alpha: 1, emphasis: 0)
@@ -240,16 +245,17 @@ final class RateTitleView: NSView {
         let alpha: CGFloat = dimmed ? 0.4 : 1
         if let icon {
             let y = (bounds.height - icon.size.height) / 2
-            let rect = NSRect(x: Self.padding, y: y, width: icon.size.width, height: icon.size.height)
+            let rect = NSRect(x: padding, y: y, width: icon.size.width, height: icon.size.height)
             Self.tinted(icon, NSColor.labelColor.withAlphaComponent(alpha)).draw(in: rect)
         }
         // draw(at:)은 글자 줄 상자의 왼쪽 아래를 기준으로 그린다
         let lineHeight = font.ascender - font.descender
-        let y = ((bounds.height - lineHeight) / 2).rounded()
+        // 줄 상자를 가운데 둔 뒤 기본 버튼에 맞춰 내리고, 화면 픽셀에 맞춰 흐려지지 않게 한다 (1배율 화면 대비)
+        let y = backingAligned(((bounds.height - lineHeight) / 2).rounded() - Self.textDrop)
         // 전환 중에는 화살표가 오른쪽으로 살짝 밀렸다 돌아오기를 반복한다
         let nudge = isSwitching ? 0.75 * (1 - cos(CACurrentMediaTime() * 2 * .pi / 1.2)) : 0
         // 왼쪽으로 빠지는 글자가 아이콘 위로 지나가지 않게 글자 영역 안에서만 그린다
-        let textStart = Self.padding + (icon?.size.width ?? 18) + Self.iconGap / 2
+        let textStart = padding + (icon?.size.width ?? 18) + Self.iconGap / 2
         NSGraphicsContext.saveGraphicsState()
         NSRect(x: textStart, y: 0, width: bounds.width - textStart, height: bounds.height).clip()
         defer { NSGraphicsContext.restoreGraphicsState() }
@@ -267,6 +273,12 @@ final class RateTitleView: NSView {
             if gray > 0.01 { draw(piece.text, at: point, color: .secondaryLabelColor, alpha: gray) }
             if normal > 0.01 { draw(piece.text, at: point, color: .labelColor, alpha: normal) }
         }
+    }
+
+    /// 화면 픽셀 경계로 맞춘다 (Retina 0.5pt, 일반 화면 1pt 단위)
+    private func backingAligned(_ y: CGFloat) -> CGFloat {
+        let scale = window?.backingScaleFactor ?? 2
+        return (y * scale).rounded() / scale
     }
 
     private func draw(_ text: String, at point: NSPoint, color: NSColor, alpha: CGFloat) {
