@@ -23,7 +23,11 @@ import Foundation
 //
 // 시리얼을 생략하면 앱이 넘겨주는 SRS_DEVICE_UID(예: com_motu_driver_gen5_control_interface:ul5xxxxxxx)에서 얻고,
 // 그것도 없으면(터미널에서 직접 실행) 연결된 MOTU Gen 5 장치를 찾는다.
-// 종료 코드: 0 준비됨, 1 접속/프로토콜 오류, 2 장치 없음, 3 비밀번호가 켜져 있음, 4 시간 초과
+// 드물게 장치가 샘플레이트 변경 요청을 받고도 이전 값으로 남는다 (2026-11-08: 드라이버가 96000을 보냈는데 장치가 44100을
+// 돌려줌). 그러면 기다려도 바뀌지 않으므로, 시작할 때 Core Audio의 샘플레이트가 아직 다르면 한 번 더 요청하고,
+// 그래도 그대로면 시간 초과까지 기다리지 않고 끝낸다.
+//
+// 종료 코드: 0 준비됨, 1 접속/프로토콜 오류, 2 장치 없음, 3 비밀번호가 켜져 있음, 4 시간 초과, 5 장치가 샘플레이트를 바꾸지 않음
 
 enum Prop {
     static let sampleRate = 10
@@ -92,6 +96,36 @@ func connectedMOTUSerials() -> [String] {
         guard AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, &uid) == noErr, let uid else { return nil }
         return serial(fromUID: uid.takeRetainedValue() as String)
     }
+}
+
+// MARK: - Core Audio 샘플레이트
+
+func coreAudioDevice(uid: String) -> AudioObjectID? {
+    var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+                                          mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    var cfUID = uid as CFString
+    var id = AudioObjectID(kAudioObjectUnknown)
+    var size = UInt32(MemoryLayout<AudioObjectID>.size)
+    let status = withUnsafePointer(to: &cfUID) {
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr,
+                                   UInt32(MemoryLayout<CFString>.size), $0, &size, &id)
+    }
+    return status == noErr && id != kAudioObjectUnknown ? id : nil
+}
+
+private var nominalRateAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate,
+                                                            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+
+func nominalRate(_ id: AudioObjectID) -> Int? {
+    var rate = 0.0
+    var size = UInt32(MemoryLayout<Double>.size)
+    guard AudioObjectGetPropertyData(id, &nominalRateAddress, 0, nil, &size, &rate) == noErr else { return nil }
+    return Int(rate)
+}
+
+func setNominalRate(_ id: AudioObjectID, _ rate: Int) -> OSStatus {
+    var value = Double(rate)
+    return AudioObjectSetPropertyData(id, &nominalRateAddress, 0, nil, UInt32(MemoryLayout<Double>.size), &value)
 }
 
 /// 시리얼: 인자 → 앱이 넘긴 SRS_DEVICE_UID → 연결된 MOTU 장치 (하나일 때) 순서로 찾는다
@@ -279,6 +313,20 @@ default:
         }
     }
     client.start()
+    // 장치가 요청을 받아들이지 않고 이전 샘플레이트로 남았으면 한 번 더 요청한다
+    if let targetRate, let uid = ProcessInfo.processInfo.environment["SRS_DEVICE_UID"], let device = coreAudioDevice(uid: uid) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard let current = nominalRate(device), current != targetRate else { return }
+            info("장치가 \(current)에 그대로 있어 \(targetRate)을 다시 요청합니다")
+            let status = setNominalRate(device, targetRate)
+            if status != noErr { fail(5, "샘플레이트를 다시 요청하지 못했습니다 (OSStatus \(status))") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                guard let after = nominalRate(device), after != targetRate else { return }
+                probe.stop()
+                fail(5, "장치가 샘플레이트를 바꾸지 않습니다 (\(after)에 그대로)")
+            }
+        }
+    }
     DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
         probe.stop()
         fail(4, String(format: "%.0f초 안에 출력 미터에 소리가 잡히지 않았습니다", timeout))
