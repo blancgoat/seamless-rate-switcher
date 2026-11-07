@@ -48,6 +48,7 @@ private final class SettingsViewState: ObservableObject {
 
 private struct SettingsView: View {
     @ObservedObject var state: SettingsViewState
+    @ObservedObject var updates = UpdateChecker.shared
 
     @AppStorage(SettingsKey.menuBarRateStyle) private var rateStyle = "simple"
     @AppStorage(SettingsKey.rateFormat) private var rateFormat = "short"
@@ -76,12 +77,39 @@ private struct SettingsView: View {
                 }
                 Toggle(L("Launch at Login"), isOn: Binding(get: { state.launchAtLogin }, set: setLaunchAtLogin))
             }
+            Section {
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        updateStatusView
+                        Button(L("Check for Updates")) { updates.check() }
+                            .disabled(updates.status == .checking)
+                    }
+                } label: {
+                    Text(L("Version %@", UpdateChecker.currentVersion))
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             state.launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    @ViewBuilder private var updateStatusView: some View {
+        switch updates.status {
+        case .idle:
+            EmptyView()
+        case .checking:
+            ProgressView().controlSize(.small)
+        case .upToDate:
+            Text(L("Up to date")).foregroundStyle(.secondary)
+        case let .available(release):
+            Button(L("Download %@…", release.version)) { updates.openReleasePage() }
+                .buttonStyle(.link)
+        case let .failed(reason):
+            Text(L("Couldn’t check")).foregroundStyle(.secondary).help(reason)
         }
     }
 

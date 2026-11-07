@@ -96,3 +96,10 @@
 "Sample Rate Format" = "샘플레이트 표기";
 "Extra delay after Core Audio confirms" = "Core Audio 확인 후 추가 대기";
 "Pause → change rate → Core Audio confirms the device switched → extra delay (or ready script) → resume" = "일시정지 → rate 변경 → Core Audio가 장치 변경 확인 → 추가 대기 (또는 준비 확인 스크립트) → 재생";
+
+/* 업데이트 확인 */
+"Check for Updates" = "업데이트 확인";
+"Version %@" = "버전 %@";
+"Up to date" = "최신 버전입니다";
+"Download %@…" = "%@ 받기…";
+"Couldn’t check" = "확인하지 못했습니다";
