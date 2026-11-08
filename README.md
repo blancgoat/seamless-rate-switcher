@@ -76,7 +76,7 @@ https://github.com/user-attachments/assets/3fccd980-f327-4b91-b236-d448a323d22f
 ## Good to Know
 
 - **This app controls Music directly.** On tracks where the sample rate changes, Music pauses for a few seconds. This is expected: it is waiting for the DAC to finish switching to the new rate. **Please don't press play — just wait.** While waiting, the menu bar icon changes from a note (♫) to a rest (<img width="24" height="24" alt="image" src="https://github.com/user-attachments/assets/db431284-549b-45bc-952f-b8609527a081" />), and changes back to a note when playback resumes.
-- For an Apple Music track that was already playing before the app launched, the sample rate is matched starting from the next track. Local files are matched right away.
+- If Music is already playing when the app launches, the current track's sample rate is matched right away (Music pauses briefly in the middle of the track).
 - Sample rates the output device doesn't support are skipped.
 - The app also works with Music's song transitions (AutoMix, Crossfade) turned on, but turning them off is recommended. On tracks where the sample rate changes, playback pauses right before the two tracks start to overlap, which can feel like the song stops at an awkward moment.
 - The app works by reading the Music app's internal logs, so it may stop working after a macOS or Music update.
