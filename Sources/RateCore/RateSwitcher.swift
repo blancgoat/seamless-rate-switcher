@@ -121,13 +121,10 @@ public final class RateSwitcher {
     private var endWatchGeneration = 0
 
     /// 곡 전환 효과(AutoMix·크로스페이드)의 계획: 지금 곡의 어디서부터 다음 곡과 겹치는지. 곡 끝 대신 여기 직전에 멈춘다.
-    /// AutoMix는 시작 위치를 직접 알려 주고(plannedStart), 둘 다 끝 위치와 겹치는 길이를 알려 준다.
-    private var plannedStart: TimeInterval?
-    private var overlapEnd: TimeInterval?
-    private var overlapDuration: TimeInterval?
+    /// Music이 곡(item)마다 겹치기 시작 위치를 알려 준다. 다음 곡 것이 먼저 오기도 해서 곡별로 둔다.
+    private var overlapStarts: [String: TimeInterval] = [:]
     private var transitionStart: TimeInterval? {
-        let fromEnd = overlapEnd.flatMap { end in overlapDuration.map { end - $0 } }
-        return [plannedStart, fromEnd].compactMap { $0 }.min()
+        tracker.currentItems.values.lazy.compactMap { self.overlapStarts[$0] }.first
     }
     /// 곡 전환 효과가 진행 중. 이때 일시정지하면 Music이 전환을 취소하고 이전 곡을 다시 불러오며 꼬이므로,
     /// 그동안 필요해진 rate 변경은 전환이 끝난 뒤로 미룬다.
@@ -140,10 +137,19 @@ public final class RateSwitcher {
     private var upcomingDuringSwitch: (player: String, item: String, format: MusicLogTracker.Format)?
 
     private var logProcess: Process?
+    /// 켤 때 지난 로그를 다시 읽는 중. 그동안 실시간으로 들어온 로그는 모아 뒀다가 다 읽은 뒤 순서대로 처리한다
+    private var replayingRecentLog = false
+    private var liveDuringReplay: [String] = []
+    /// 다시 읽는 동안 알게 된 다음 곡. 지금 곡의 rate를 먼저 맞춘 뒤에 곡 끝 감시를 건다
+    /// (감시를 걸지는 "다음 곡 rate ≠ 장치 rate"로 정하는데, 장치 rate가 곧 바뀌기 때문)
+    private var upcomingDuringReplay: (player: String, item: String, format: MusicLogTracker.Format)?
     private var lastRateWeSet: Double?
     private var lastPersistentID: String?
     /// playerInfo 알림으로 아는 마지막 재생 상태. 곡이 바뀔 때 잠깐 "Stopped"가 끼므로 "Paused"일 때만 멈춰 있다고 본다.
     private var lastPlayerState: String?
+    /// 앱이 일시정지해 둔 동안 다른 쪽(Music 창·키보드·다른 앱)이 다시 재생했다. 그러면 재개할 때 다음 곡으로
+    /// 넘기거나 처음으로 되감지 않는다 (사용자가 고른 재생을 덮어쓰게 된다)
+    private var resumedByOtherDuringHold = false
     private var watchedDevices = Set<AudioDevice>()
     private var playerInfoObserver: NSObjectProtocol?
 
@@ -164,11 +170,10 @@ public final class RateSwitcher {
                 onMessage?(.detail(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
                 disarmEndWatch()
                 upcomingDuringSwitch = nil
+                upcomingDuringReplay = nil
                 nextRate = nil
-                // 전환 계획은 떠난 곡의 것이다
-                plannedStart = nil
-                overlapEnd = nil
-                overlapDuration = nil
+                // 떠난 곡의 계획은 더 쓰지 않는다
+                if let from { overlapStarts[from] = nil }
                 // 곡 끝 직전에 멈췄는데 그사이 Music이 스스로 다음 곡으로 넘어갔다면, 재개할 때 또 넘기면 안 된다
                 if resumeAction == .advance { resumeAction = .rewind }
             case let .waitingForFormat(player, item):
@@ -210,7 +215,9 @@ public final class RateSwitcher {
         watchDefaultOutput()
         observePlayerInfo()
         checkCurrentTrackOnStart()
+        replayingRecentLog = true
         try startLogStream()
+        replayRecentLog()
     }
 
     public func stop() {
@@ -363,6 +370,7 @@ public final class RateSwitcher {
                 }
                 // 더 새로운 전환이 이미 붙잡아 둔 상태를, 늦게 돌아온 이전 일시정지 결과로 덮어쓰지 않는다
                 if self.heldPause == nil || generation == self.switchGeneration {
+                    if self.heldPause == nil { self.resumedByOtherDuringHold = false }
                     self.heldPause = result.state
                 }
                 proceed()
@@ -492,6 +500,11 @@ public final class RateSwitcher {
         armUpcomingDeferredDuringSwitch()
         guard let held = heldPause else { return }
         heldPause = nil
+        if resumedByOtherDuringHold {
+            resumedByOtherDuringHold = false
+            onMessage?(.info(L("Music is already playing, so not resuming")))
+            return
+        }
         let state = MusicScripting.PauseState(persistentID: held.persistentID, action: resumeAction)
         switch state.action {
         case .advance: onMessage?(.info(L("Resumed (next track)")))
@@ -509,17 +522,9 @@ public final class RateSwitcher {
     private func handle(_ transition: MusicLog.Transition) {
         let before = transitionStart
         switch transition {
-        case let .planned(start):
-            plannedStart = start
-        case let .overlapEnd(end):
-            overlapEnd = end
-        case let .duration(duration):
-            overlapDuration = duration
-        case .cancelled:
-            // 곡 전환 효과를 끄면 계획이 취소된다. 남겨 두면 겹치지도 않는데 곡 끝보다 일찍 멈춘다
-            plannedStart = nil
-            overlapEnd = nil
-            overlapDuration = nil
+        case let .overlapStart(item, at):
+            // 곡 전환 효과를 끄거나 취소하면 nan이 온다. 남겨 두면 겹치지도 않는데 곡 끝보다 일찍 멈춘다
+            overlapStarts[item] = at
         case .began:
             onMessage?(.detail(L("Transition began")))
             inTransition = true
@@ -556,7 +561,8 @@ public final class RateSwitcher {
     }
 
     private static func clock(_ seconds: TimeInterval) -> String {
-        String(format: "%d:%05.2f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
+        guard seconds.isFinite else { return "?" }
+        return String(format: "%d:%05.2f", Int(seconds) / 60, seconds.truncatingRemainder(dividingBy: 60))
     }
 
     // MARK: - 곡 끝 직전 일시정지
@@ -564,6 +570,10 @@ public final class RateSwitcher {
     /// 다음 곡의 rate가 지금과 다르면, 현재 곡이 끝나기 직전에 멈추도록 감시를 건다.
     /// 곡이 넘어간 뒤에 멈추면 새 곡 앞부분이 잠깐 새어 나가므로, 넘어가기 전에 멈추는 게 근본 해결.
     private func upcomingPrepared(player: String, item: String, format: MusicLogTracker.Format) {
+        if replayingRecentLog {
+            upcomingDuringReplay = (player, item, format)
+            return
+        }
         if switchInFlight {
             upcomingDuringSwitch = (player, item, format)
             return
@@ -663,6 +673,24 @@ public final class RateSwitcher {
             forName: Notification.Name("com.apple.Music.playerInfo"), object: nil, queue: .main
         ) { [weak self] note in
             self?.lastPlayerState = note.userInfo?["Player State"] as? String
+            // 앱의 재개는 heldPause를 비운 뒤에 보내므로, 붙잡고 있는 동안 멈춰 둔 그 곡이 다시 Playing이면 다른 쪽이 재생한 것이다.
+            // (다른 곡이면 곡을 넘긴 것이다: Music이 넘긴 곡을 바로 재생하고, 그 곡은 앱이 다시 멈추거나 새로 전환한다)
+            // 곡이 바뀐 직후 멈출 때는 앱의 일시정지가 Music의 Playing 알림보다 먼저 확인되기도 하므로,
+            // 잠시 뒤 실제로 재생 중인지 다시 확인한다
+            // 알림에 곡 ID가 없을 때가 많아(Apple Music 곡) 같은 곡인지도 그때 Music에 묻는다
+            if let self, note.userInfo?["Player State"] as? String == "Playing", let held = heldPause,
+               held.persistentID != nil, !resumedByOtherDuringHold {
+                let generation = switchGeneration
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+                    guard MusicEvents.playerState == .playing,
+                          MusicEvents.currentTrackPersistentID == held.persistentID else { return }
+                    DispatchQueue.main.async {
+                        guard generation == self.switchGeneration, self.heldPause != nil, !self.resumedByOtherDuringHold else { return }
+                        self.resumedByOtherDuringHold = true
+                        self.onMessage?(.warning(L("Music started playing during the switch (Music window, keyboard, or another app). The sample rate may not match until the next track.")))
+                    }
+                }
+            }
             // 곡 전환 때 Stopped → Playing 알림이 연달아 오므로 ID가 바뀐 Playing만 본다
             guard let self,
                   note.userInfo?["Player State"] as? String == "Playing",
@@ -726,7 +754,7 @@ public final class RateSwitcher {
                         buffer.removeSubrange(buffer.startIndex...newline)
                         guard let line = String(data: lineData, encoding: .utf8),
                               let entry = MusicLog.parse(ndjsonLine: line) else { continue }
-                        DispatchQueue.main.async { self?.feed(logMessage: entry.message) }
+                        DispatchQueue.main.async { self?.receive(liveMessage: entry.message) }
                     }
                 }
             }
@@ -740,4 +768,131 @@ public final class RateSwitcher {
     }
 
     public var isRunning: Bool { logProcess?.isRunning == true }
+
+    private func receive(liveMessage message: String) {
+        if replayingRecentLog {
+            liveDuringReplay.append(message)
+        } else {
+            feed(logMessage: message)
+        }
+    }
+
+    // MARK: - 켤 때 지난 로그 다시 읽기
+
+    /// Music은 곡의 포맷을 오디오를 만들 때(곡 시작·다음 곡 미리 불러오기) 한 번만 로그로 남긴다.
+    /// 재생 도중에 앱을 켜면(업데이트 후 재실행 등) 지금 곡과 이미 불러온 다음 곡의 포맷을 영영 모르게 되어,
+    /// 다음 곡으로 넘어가도 rate를 바꾸지 못한다. 그래서 지금 곡이 시작된 무렵부터의 로그를 다시 읽어 상태를 되살린다.
+    /// 다시 읽는 동안은 장치를 건드리지 않고(지나간 판단이므로), 다 읽은 뒤 지금 곡의 rate만 맞춘다.
+    private func replayRecentLog() {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            // 곡 시작 로그가 들어가도록 재생 위치보다 넉넉히. 너무 길면 읽는 데 오래 걸린다 (30분 ≈ 5초)
+            let position = MusicEvents.playerPosition
+            let paused = MusicEvents.playerState == .paused
+            let finish = MusicEvents.currentTrackFinish
+            let seconds = Int(min(max((position ?? 600) + 120, 300), 1800))
+            let messages = Self.readRecentLog(seconds: seconds)
+            DispatchQueue.main.async { [self] in
+                let (current, transitionInProgress) = applyReplay(messages)
+                replayingRecentLog = false
+                let live = liveDuringReplay
+                liveDuringReplay = []
+                onMessage?(.detail(L("Read %ld lines of Music’s log from the last %ld seconds", messages.count, seconds)))
+                let next = upcomingDuringReplay
+                upcomingDuringReplay = nil
+                if let current {
+                    onMessage?(.detail(L("Format     P/%@ %@ = %@", current.player, current.item, current.format.description)))
+                }
+                // 곡 끝(또는 곡 전환 효과) 직전에 멈춘 채 앱이 꺼졌다 (그 전환 도중에 업데이트·재실행 등).
+                // 지금 곡 rate로 되돌려 재생하면 곧바로 다음 곡으로 넘어가거나 전환 효과가 시작되므로, 끝내지 못한 그 전환을 마친다
+                var finishedPendingAdvance = false
+                // (다음 곡 rate가 지금 곡과 다를 때만: 같으면 앱이 멈출 일이 없으니 사용자가 멈춰 둔 것이다)
+                if paused, let next, let position, let current, next.format.sampleRate != current.format.sampleRate,
+                   next.item != tracker.currentItem(of: next.player),
+                   let boundary = transitionStart.flatMap({ $0 > position ? $0 : nil }) ?? finish, boundary - position < 1 {
+                    finishedPendingAdvance = true
+                    onMessage?(.info(L("Music was paused just before the next track, switching for it")))
+                    if AudioDevice.defaultOutput?.nominalSampleRate == next.format.sampleRate {
+                        // 꺼지기 전에 rate는 이미 바꿔 뒀다: 다음 곡으로 넘기기만 한다
+                        DispatchQueue.global(qos: .userInteractive).async {
+                            let state = MusicScripting.PauseState(persistentID: MusicEvents.currentTrackPersistentID, action: .advance)
+                            let detail = MusicScripting.resume(state)
+                            DispatchQueue.main.async { self.onMessage?(.detail(detail)) }
+                        }
+                    } else {
+                        setRate(next.format.sampleRate, reason: "P/\(next.player) \(next.item) \(next.format.codec)", then: .advance)
+                    }
+                } else if let current, AudioDevice.defaultOutput?.nominalSampleRate != current.format.sampleRate, transitionInProgress {
+                    // 곡 전환 효과가 진행 중이다: 지금 멈추면 Music이 전환을 취소하고 떠나던 곡으로 되돌리므로 끝난 뒤 바꾼다
+                    handle(.began)
+                    afterTransition = (current.format.sampleRate, "P/\(current.player) \(current.item) \(current.format.codec)")
+                    onMessage?(.info(L("Song transition in progress, switching after it ends")))
+                } else if let current, AudioDevice.defaultOutput?.nominalSampleRate != current.format.sampleRate {
+                    // 앱을 켰을 때 이미 재생 중이던 곡: 곡 중간일 수 있으니 멈춘 자리에서 재개 (로컬 파일과 같다)
+                    setRate(current.format.sampleRate, reason: "P/\(current.player) \(current.item) \(current.format.codec)", then: .resume)
+                }
+                if !finishedPendingAdvance, let next, next.item != tracker.currentItem(of: next.player) {
+                    // 전환 중이면 끝난 뒤 바뀐 장치 rate로 판단한다
+                    upcomingPrepared(player: next.player, item: next.item, format: next.format)
+                }
+                // 다시 읽은 구간과 겹칠 수 있지만, 같은 로그를 두 번 받아도 상태는 그대로다
+                live.forEach(feed(logMessage:))
+            }
+        }
+    }
+
+    /// 지난 로그로 상태만 되살리고, 지금 곡의 포맷을 알면 돌려준다
+    /// 지난 로그로 상태만 되살린다. 지금 곡의 포맷을 알면 돌려주고, 곡 전환 효과가 아직 진행 중인지도 알려 준다
+    private func applyReplay(_ entries: [MusicLog.Entry])
+        -> (current: (player: String, item: String, format: MusicLogTracker.Format)?, inTransition: Bool) {
+        let messageHandler = onMessage
+        onMessage = nil  // 지나간 일을 지금 일처럼 기록하지 않는다
+        defer { onMessage = messageHandler }
+        var current: (player: String, item: String, format: MusicLogTracker.Format)?
+        var transitionBegan: Date??  // 시작했고 아직 끝나지 않은 전환 (시각을 못 읽으면 .some(nil))
+        for entry in entries {
+            let message = entry.message
+            if let transition = MusicLog.transition(message) {
+                // 전환의 시작·끝은 지금 진행 중인지만 따지고, 겹치기 계획은 되살린다
+                switch transition {
+                case .began: transitionBegan = .some(Self.logTimestamp.date(from: entry.timestamp))
+                case .ended: transitionBegan = nil
+                default: handle(transition)
+                }
+                continue
+            }
+            let before = tracker.currentItems
+            switch tracker.handle(message) {
+            case let .switchTo(p, i, f), let .formatChanged(p, i, f):
+                current = (p, i, f)
+            case nil:
+                // 포맷을 모르는 곡으로 넘어갔으면 앞 곡의 포맷은 더 이상 지금 곡의 것이 아니다
+                if tracker.currentItems != before { current = nil }
+            }
+        }
+        // 끝 로그를 놓친 오래된 전환은 진행 중으로 보지 않는다 (AutoMix 전환은 최대 60초)
+        let inTransition = transitionBegan.map { began in began.map { Date().timeIntervalSince($0) < 70 } ?? true } ?? false
+        return (current, inTransition)
+    }
+
+    /// log show --style ndjson의 시각: 2026-11-08 13:14:39.151234+0900
+    private static let logTimestamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
+        return formatter
+    }()
+
+    private static func readRecentLog(seconds: Int) -> [MusicLog.Entry] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+        process.arguments = ["show", "--last", "\(seconds)s", "--style", "ndjson", "--predicate", MusicLog.predicate]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").compactMap { MusicLog.parse(ndjsonLine: String($0)) }
+    }
 }

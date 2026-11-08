@@ -41,6 +41,8 @@ public final class MusicLogTracker {
     public init() {}
 
     public func currentItem(of player: String) -> String? { currentItem[player] }
+    /// player → 현재 item 전체 (곡이 바뀌었는지 비교용)
+    public var currentItems: [String: String] { currentItem }
 
     // AutoMix 중에는 플레이어 안에 겹치기용 하위 플레이어(P/WX.2)가 생겨서 곡이 그쪽에서 재생된다.
     // 하위 플레이어는 자기 item 로그와 AudioQueue(RP/WX.2.16)를 따로 남기므로, 직전 item은 하위 플레이어별로 따로 기억하고
@@ -173,52 +175,37 @@ public final class MusicLogTracker {
 
 public enum MusicLog {
     /// log stream 필터. 위 세 종류 로그와 곡 전환 효과(AutoMix·크로스페이드) 로그만 받는다 (전부 Default 레벨이라 --debug 불필요).
-    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/" OR eventMessage CONTAINS "reusing old audio pipeline")) OR (subsystem == "com.apple.Sonic" AND (eventMessage CONTAINS "Transition Generation Complete" OR eventMessage CONTAINS "resetting to .invalid")) OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "overlappedPlaybackEndTime" OR eventMessage CONTAINS "transition duration:" OR eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
+    public static let predicate = #"process == "Music" AND ((subsystem == "com.apple.coremedia" AND (eventMessage CONTAINS "Creating AudioQueue" OR eventMessage CONTAINS "updating current item" OR eventMessage CONTAINS "|P/" OR eventMessage CONTAINS "reusing old audio pipeline" OR eventMessage CONTAINS "set advanceTimeForOverlappedPlayback")) OR (subsystem == "com.apple.amp.mediaplaybackcore" AND (eventMessage CONTAINS "Enter state: OverlappedTransitionState" OR eventMessage CONTAINS "Exit state: OverlappedTransitionState" OR eventMessage CONTAINS "ITEM TRANSITION END")))"#
 
     /// 곡 전환 효과(곡 사이를 겹쳐 섞는 AutoMix·크로스페이드) 로그.
-    /// - 전환 계획 (둘 다): 다음 곡을 준비하면 `TRANSITION: Setting overlappedPlaybackEndTime to 206.773000 on I/LWW`(지금 곡이
-    ///   끝나는 위치)와 `| transition duration: 6.00`(겹치는 길이)을 남긴다. 겹치기 시작 = 끝 - 길이. 실제 전환보다 수십 초 먼저 온다.
-    /// - AutoMix는 `[ALC] - Transition Generation Complete:` 아래에 겹치기 시작 위치(Outgoing Start / Overlap Start)를 직접 남긴다.
+    /// - 전환 계획 (둘 다): `set advanceTimeForOverlappedPlayback = 191.542 for item <…|I/FOU.01>` — 그 곡의 겹치기 시작 위치.
+    ///   다음 곡을 준비할 때 오고, 취소하거나 전환 방식을 끄면 같은 로그가 nan으로 온다. 다시 계획하면 새 값이 뒤따른다.
     /// - 전환 시작: `STATE MACHINE: Enter state: OverlappedTransitionState` 직후에 currentItem이 다음 곡으로 바뀐다.
     /// - 전환 끝: `Exit state: OverlappedTransitionState`, `ITEM TRANSITION END` (취소될 때도 남는다).
-    /// - 계획 취소: 곡 전환 효과를 끄면(또는 일시정지·건너뛰기로 다시 계획할 때) `overlappedPlaybackEndTime had been set on
-    ///   ... - resetting to .invalid`를 남긴다. 다시 계획하면 새 계획 로그가 뒤따른다.
-    ///   (`ITEM TRANSITION CANCELLED`도 남지만 이벤트 로그라 1초 가까이 늦게 올 때가 있어, 새 계획을 지울 수 있어서 쓰지 않는다)
     public enum Transition: Equatable {
-        case planned(start: TimeInterval)
-        case overlapEnd(TimeInterval)
-        case duration(TimeInterval)
-        case cancelled
+        /// 이 곡의 이 위치(초)에서 다음 곡과 겹치기 시작한다. nil이면 계획이 없어졌다(취소·설정 끔)
+        case overlapStart(item: String, at: TimeInterval?)
         case began
         case ended
     }
 
-    // * Outgoing Start:   (sourceTime: 3:24.77, targetTime: 3:24.77)
-    private static let plannedStart = try! NSRegularExpression(pattern: #"\* (?:Outgoing|Overlap) Start:\s+\(sourceTime: (?:(\d+):)?(\d+):(\d+(?:\.\d+)?)"#)
-    private static let overlapEnd = try! NSRegularExpression(pattern: #"Setting overlappedPlaybackEndTime to (\d+(?:\.\d+)?)"#)
-    private static let duration = try! NSRegularExpression(pattern: #"\| transition duration: (\d+(?:\.\d+)?)"#)
+    // AutoMix·크로스페이드 모두 겹치기 시작 위치를 곡마다 이렇게 정한다 (취소하면 nan). 마지막 값이 유효하다.
+    // playeroverlap_setAdvanceTimeForOverlappedPlaybackInPlayerQueue: set advanceTimeForOverlappedPlayback = 191.542 for item <0x74e9b289a0|I/FOU.01>
+    // 예전에는 AutoMix 계획 로그(Outgoing Start)·끝 위치·겹치는 길이를 따로 모아 계산했는데, 전환 방식을 바꾸는 순간
+    // Music이 새 계획을 먼저 남기고 옛 계획을 지우는 로그를 뒤에 남겨 새 계획까지 지워 버렸다.
+    private static let overlapStart = try! NSRegularExpression(pattern: #"set advanceTimeForOverlappedPlayback = (nan|\d+(?:\.\d+)?) for item <0x[0-9a-f]+\|(I/[\w.]+)>"#)
 
     public static func transition(_ message: String) -> Transition? {
-        if message.contains("Transition Generation Complete") {
-            let range = NSRange(message.startIndex..., in: message)
-            let starts = plannedStart.matches(in: message, range: range).map { match -> TimeInterval in
-                let part = { (i: Int) in Range(match.range(at: i), in: message).flatMap { Double(message[$0]) } ?? 0 }
-                return part(1) * 3600 + part(2) * 60 + part(3)
-            }
-            return starts.min().map { .planned(start: $0) }
+        let range = NSRange(message.startIndex..., in: message)
+        if let match = overlapStart.firstMatch(in: message, range: range),
+           let value = Range(match.range(at: 1), in: message), let item = Range(match.range(at: 2), in: message) {
+            // Double("nan")은 nil이 아니라 NaN이 되므로 직접 거른다 (NaN을 그대로 두면 시각으로 바꿀 때 앱이 죽는다)
+            let at = Double(message[value]).flatMap { $0.isFinite ? $0 : nil }
+            return .overlapStart(item: String(message[item]), at: at)
         }
-        if message.contains("resetting to .invalid") { return .cancelled }
-        if let value = firstNumber(overlapEnd, message) { return .overlapEnd(value) }
-        if let value = firstNumber(duration, message) { return .duration(value) }
         if message.contains("Enter state: OverlappedTransitionState") { return .began }
         if message.contains("Exit state: OverlappedTransitionState") || message.contains("ITEM TRANSITION END") { return .ended }
         return nil
-    }
-
-    private static func firstNumber(_ regex: NSRegularExpression, _ s: String) -> Double? {
-        let range = NSRange(s.startIndex..., in: s)
-        guard let match = regex.firstMatch(in: s, range: range), let r = Range(match.range(at: 1), in: s) else { return nil }
-        return Double(s[r])
     }
 
     public struct Entry {

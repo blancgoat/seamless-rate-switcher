@@ -105,3 +105,7 @@
 "Muted output (channels %@, %ldms)" = "출력 음소거 (채널 %@, %ldms)";
 "Unmuted output" = "출력 음소거 해제";
 "all" = "전체";
+"Read %ld lines of Music’s log from the last %ld seconds" = "켤 때 Music 로그 %ld줄을 다시 읽음 (최근 %ld초)";
+"Music started playing during the switch (Music window, keyboard, or another app). The sample rate may not match until the next track." = "전환하려고 일시정지한 사이 Music이 다시 재생됨 (Music 창·키보드·다른 앱). 다음 곡 전까지 샘플레이트가 맞지 않을 수 있음";
+"Music is already playing, so not resuming" = "Music이 이미 재생 중이라 재개하지 않음";
+"Music was paused just before the next track, switching for it" = "다음 곡 직전에 멈춘 채로 켜져서, 다음 곡에 맞춰 전환";
