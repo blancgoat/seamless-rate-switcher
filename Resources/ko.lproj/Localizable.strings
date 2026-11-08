@@ -109,3 +109,6 @@
 "Music started playing during the switch (Music window, keyboard, or another app). The sample rate may not match until the next track." = "전환하려고 일시정지한 사이 Music이 다시 재생됨 (Music 창·키보드·다른 앱). 다음 곡 전까지 샘플레이트가 맞지 않을 수 있음";
 "Music is already playing, so not resuming" = "Music이 이미 재생 중이라 재개하지 않음";
 "Music was paused just before the next track, switching for it" = "다음 곡 직전에 멈춘 채로 켜져서, 다음 곡에 맞춰 전환";
+"Trim Track Ends for Clean Switches" = "곡 끝 살짝 잘라 안정적으로 전환";
+"Cuts the last 0.1 s of a track so the next one never starts at the wrong sample rate. Turn off if your tracks play right up to the end." = "다음 곡이 잘못된 샘플레이트로 새어 나오지 않게, 곡 마지막 0.1초를 자릅니다. 끝까지 소리가 꽉 찬 곡을 주로 들으면 꺼 두세요.";
+"Always on while AutoMix or Crossfade is on." = "자동 믹스·크로스페이드를 쓰는 동안에는 항상 적용됩니다.";

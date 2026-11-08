@@ -15,6 +15,11 @@ enum SettingsKey {
     /// 샘플레이트 표기: short(44.1k) / shortHz(44.1kHz) / full(44100) / fullHz(44100 Hz).
     /// 메뉴바에만 쓴다 (메뉴 안은 44100 Hz로 고정)
     static let rateFormat = "rateFormat"
+    /// 다음 곡 rate가 다를 때 곡이 끝나기 100ms 전에 멈춘다 (끄면 곡 끝에 맞춰 멈춘다)
+    static let pauseBeforeEnd = "pauseBeforeEnd"
+    static let pauseBeforeEndMs = 100
+    /// 곡 전환 효과(AutoMix·크로스페이드) 앞에서는 설정과 관계없이 항상 이만큼 앞서 멈춘다 (RateSwitcher.transitionLead)
+    static let transitionLeadMs = 150
 
     static let maxDelayMs = 20000
 }
@@ -52,6 +57,7 @@ private struct SettingsView: View {
 
     @AppStorage(SettingsKey.menuBarRateStyle) private var rateStyle = "simple"
     @AppStorage(SettingsKey.rateFormat) private var rateFormat = "short"
+    @AppStorage(SettingsKey.pauseBeforeEnd) private var pauseBeforeEnd = true
 
     var body: some View {
         Form {
@@ -76,6 +82,13 @@ private struct SettingsView: View {
                     }
                 }
                 Toggle(L("Launch at Login"), isOn: Binding(get: { state.launchAtLogin }, set: setLaunchAtLogin))
+            }
+            Section {
+                Toggle(isOn: $pauseBeforeEnd) {
+                    Text(L("Trim Track Ends for Clean Switches"))
+                    Text(L("Cuts the last 0.1 s of a track so the next one never starts at the wrong sample rate. Turn off if your tracks play right up to the end.") + "\n"
+                         + L("Always on while AutoMix or Crossfade is on."))
+                }
             }
             Section {
                 LabeledContent {

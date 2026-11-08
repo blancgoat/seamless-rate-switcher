@@ -25,7 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         Self.keepLegacyDefaultDelay()
         Self.migrateDefaultsFromOldName()
         UserDefaults.standard.register(defaults: [Self.settleEnabledKey: true, Self.settleDelayKey: Self.defaultSettleDelayMs,
-                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.rateFormat: RateFormat.short.rawValue])
+                                                  SettingsKey.menuBarRateStyle: RateStyle.simple.rawValue, SettingsKey.rateFormat: RateFormat.short.rawValue,
+                                                  SettingsKey.pauseBeforeEnd: true])
         // 이전 버전은 -1을 "끄기"로 저장했다
         if UserDefaults.standard.integer(forKey: Self.settleDelayKey) < 0 {
             UserDefaults.standard.set(false, forKey: Self.settleEnabledKey)
@@ -487,6 +488,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
 
     private func applySettleDelay() {
         switcher.settleDelay = settleEnabled ? TimeInterval(settleDelayMs) / 1000 : nil
+        switcher.preEndLead = UserDefaults.standard.bool(forKey: SettingsKey.pauseBeforeEnd)
+            ? TimeInterval(SettingsKey.pauseBeforeEndMs) / 1000 : 0
+        switcher.transitionLead = TimeInterval(SettingsKey.transitionLeadMs) / 1000
     }
 
     /// 0~20초 범위, 10ms 단위로 맞춰 저장하고 슬라이더·입력칸을 서로 맞춘다

@@ -44,10 +44,9 @@ public final class RateSwitcher {
     public private(set) var lastReadyScriptFailure: String?
     public var readyScriptFallbackDelay: TimeInterval = 0
 
-    /// 곡이 끝나기 이만큼 전에 미리 멈춘다. 새 곡 소리가 잘못된 rate로 한 번도 나가지 않게 하려는 것.
-    /// 0이어도 새지 않는다: 일시정지는 보낸 뒤 약 5ms면 먹히고, 포맷이 다른 곡 사이에는 Music이 오디오 출력을
-    /// 새로 만드느라 약 40ms 틈이 생겨 그 안에 멈춘다 (실측: 다음 곡은 15ms 남짓만 출력, 들리지 않음).
-    /// 이전 150ms는 "일시정지 확인" 폴링 시간을 지연으로 보고 잡은 값이라 곡 끝이 그만큼 잘렸다.
+    /// 곡이 끝나기 이만큼 전에 미리 멈춘다. 새 곡 소리가 잘못된 rate로 한 번도 나가지 않게 하려는 것 (설정에서 0 또는 100ms).
+    /// 0이면 새 곡 앞부분이 수십 ms 샐 수 있다: Music이 알려 주는 곡 끝보다 실제 오디오가 마지막 묶음만큼(96k 무손실 약 43ms)
+    /// 먼저 끝나고, 곡 사이 틈은 약 20ms뿐이며, 타이머·Apple Event 지연이 더해진다 (실측: 끝난 뒤 45ms에 일시정지, 새 곡 약 40ms 출력).
     public var preEndLead: TimeInterval = 0
 
     /// AutoMix·크로스페이드 겹치기가 시작되기 이만큼 전에 멈춘다. 곡 끝과 달리 여기는 늦으면 안 된다:
