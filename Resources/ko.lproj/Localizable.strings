@@ -3,7 +3,6 @@
 "Stopped reading Music logs (please relaunch the app)" = "Music 로그 수신이 멈췄습니다 (앱을 다시 실행하세요)";
 "LosslessSwitcher is running. Both apps will fight over the sample rate" = "LosslessSwitcher가 실행 중입니다. 같이 쓰면 서로 샘플레이트를 바꿉니다";
 "Pause While Switching" = "전환 시 일시정지";
-"Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends." = "샘플레이트가 바뀔 때만 멈춥니다. 다음 곡의 샘플레이트를 미리 알면 지금 곡이 끝나기 직전에 멈춥니다.";
 "Launch at Login" = "로그인 시 실행";
 "Quit" = "종료";
 
@@ -80,7 +79,6 @@
 "Waiting the extra delay…" = "추가 대기 중…";
 "Running the ready script…" = "준비 확인 스크립트 실행 중…";
 "Next track: %@" = "다음 곡: %@";
-"Instead of a fixed delay, a script can tell when the audio interface is ready." = "고정 대기 시간 대신, 오디오 인터페이스가 준비됐는지 확인하는 스크립트를 쓸 수 있습니다.";
 "No confirmation from the device" = "장치 확인 알림 없음";
 "Couldn’t set the sample rate" = "샘플레이트 변경 실패";
 "Ready script failed: %@" = "준비 확인 스크립트 실패: %@";
@@ -95,7 +93,6 @@
 "Switched %@ without confirming the device is ready" = "전환 %@, 장치 준비 확인 못 함";
 "Sample Rate Format" = "샘플레이트 표기";
 "Extra delay after Core Audio confirms" = "Core Audio 확인 후 추가 대기";
-"Pause → change rate → Core Audio confirms the device switched → extra delay (or ready script) → resume" = "일시정지 → rate 변경 → Core Audio가 장치 변경 확인 → 추가 대기 (또는 준비 확인 스크립트) → 재생";
 
 /* 업데이트 확인 */
 "Check for Updates" = "업데이트 확인";

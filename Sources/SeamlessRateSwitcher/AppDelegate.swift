@@ -420,6 +420,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     // MARK: - 메뉴 (열 때마다 새로 구성)
 
     /// 누를 수 있는 항목을 위에, 상태를 보여 주는 정보(장치·단계 스택·경고)를 아래에 둔다. 종료는 관례대로 맨 끝.
+    /// 메뉴 항목에는 툴팁을 달지 않는다: 메뉴 툴팁은 마우스가 조금만 움직여도 닫혔다 다시 뜨고,
+    /// 메뉴가 갱신되거나 하위 메뉴가 열리면 사라져서 제대로 읽을 수 없다.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         // 메뉴가 닫혀 있는 동안 지나간 스택을 먼저 정리해, 열자마자 오래된 줄이 보이지 않게
@@ -428,8 +430,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let settle = NSMenuItem(title: L("Pause While Switching"), action: #selector(toggleSettle), keyEquivalent: "")
         settle.target = self
         settle.state = settleEnabled ? .on : .off
-        settle.toolTip = L("Pauses only when the sample rate changes. When the next track’s rate is known in advance, pauses just before the current track ends.")
-            + "\n" + L("Pause → change rate → Core Audio confirms the device switched → extra delay (or ready script) → resume")
         menu.addItem(settle)
         if settleEnabled {
             // 스크립트를 쓰면 스크립트가 준비 시점을 정하므로 추가 대기는 숨긴다.
@@ -580,12 +580,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         guard let url = readyScriptURL else {
             let choose = NSMenuItem(title: "    " + L("Choose Ready Script…"), action: #selector(chooseReadyScript), keyEquivalent: "")
             choose.target = self
-            choose.toolTip = L("Instead of a fixed delay, a script can tell when the audio interface is ready.")
             return [choose]
         }
         let item = NSMenuItem(title: "    " + L("Ready Script: %@", url.lastPathComponent), action: nil, keyEquivalent: "")
-        item.toolTip = url.path + "\n" + L("Resumes as soon as the script exits. Even if it fails, playback resumes right away.")
+        // 하위 메뉴가 있는 항목에 툴팁을 달면 툴팁이 잠깐 떴다가 하위 메뉴에 가려지므로, 설명은 하위 메뉴 안에 둔다
         let submenu = NSMenu()
+        let path = NSMenuItem(title: (url.path as NSString).abbreviatingWithTildeInPath, action: nil, keyEquivalent: "")
+        path.isEnabled = false
+        submenu.addItem(path)
+        let note = NSMenuItem(title: L("Resumes as soon as the script exits. Even if it fails, playback resumes right away."), action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        submenu.addItem(note)
+        submenu.addItem(.separator())
         let remove = NSMenuItem(title: L("Remove Ready Script"), action: #selector(removeReadyScript), keyEquivalent: "")
         remove.target = self
         submenu.addItem(remove)
@@ -595,7 +601,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
         let short = failure.count > 60 ? String(failure.prefix(60)) + "…" : failure
         let warning = NSMenuItem(title: "    ⚠︎ " + L("Last run failed: %@", short), action: nil, keyEquivalent: "")
         warning.isEnabled = false
-        warning.toolTip = failure
         return [item, warning]
     }
 
