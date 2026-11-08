@@ -127,6 +127,20 @@ final class RateTitleView: NSView {
         needsDisplay = true
     }
 
+    /// 모델은 그대로인데 글자 모양(rateText)이 바뀌었을 때 (설정에서 표기 방식을 바꿈) 애니메이션 없이 다시 배치한다
+    func relayout() {
+        guard let model else { return }
+        let layout = layout(for: model)
+        start = layout.pieces
+        target = layout.pieces
+        startWidth = layout.width
+        targetWidth = layout.width
+        animationStart = nil
+        applyWidth(layout.width)
+        updateTimer()
+        needsDisplay = true
+    }
+
     private static func sameLayout(_ a: Model, _ b: Model) -> Bool {
         a.stage == b.stage && a.from == b.from && a.to == b.to && a.statusSlot == b.statusSlot
     }

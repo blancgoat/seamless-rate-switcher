@@ -45,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
             guard let self else { return }
             applySettleDelay()
             applyReadyScript()
+            // 자세히 표시는 샘플레이트가 그대로면 다시 그리지 않으므로, 표기 방식이 바뀌면 직접 다시 배치한다
+            let format = Self.rateFormat
+            if format != shownRateFormat {
+                shownRateFormat = format
+                titleView?.relayout()
+            }
             updateTitle()
         }
         switcher.onMessage = { [weak self] message in
@@ -379,6 +385,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSText
     }
 
     private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .medium)
+
+    private var shownRateFormat = AppDelegate.rateFormat
 
     private static var rateFormat: RateFormat {
         UserDefaults.standard.string(forKey: SettingsKey.rateFormat).flatMap(RateFormat.init) ?? .short
