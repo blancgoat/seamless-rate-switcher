@@ -50,6 +50,13 @@ public final class RateSwitcher {
     /// 이전 150ms는 "일시정지 확인" 폴링 시간을 지연으로 보고 잡은 값이라 곡 끝이 그만큼 잘렸다.
     public var preEndLead: TimeInterval = 0
 
+    /// AutoMix·크로스페이드 겹치기가 시작되기 이만큼 전에 멈춘다. 곡 끝과 달리 여기는 늦으면 안 된다:
+    /// 겹치기가 시작된 뒤(OverlappedTransitionState)에 일시정지가 닿으면 Music은 전환을 취소하고 떠나던 곡을
+    /// 다시 불러와 그 위치로 되돌린다. 그러면 다시 재생할 때 같은 겹치기 지점에서 또 멈춰 다음 곡으로 영영 넘어가지 못한다
+    /// (실측: 겹치기 시작 16ms 뒤에 일시정지가 닿아 같은 곡이 반복됨). 겹치는 구간 앞부분이라 잘려도 티가 안 난다.
+    /// 150ms는 1.2.1까지 곡 끝에도 쓰던 값이다.
+    public var transitionLead: TimeInterval = 0.15
+
     private let tracker = MusicLogTracker()
     private var switchGeneration = 0
     private var heldPause: MusicScripting.PauseState? {
@@ -127,6 +134,10 @@ public final class RateSwitcher {
     private var inTransition = false
     private var transitionGeneration = 0
     private var afterTransition: (rate: Double, reason: String)?
+    /// 전환하는 동안 Music이 미리 불러온 다음 곡. 전환이 끝나면 곡 끝 감시를 건다
+    /// (지금 곡으로 바꾸느라 준비 확인 스크립트를 기다리는 몇 초 사이에 다음 곡을 불러오는 일이 흔하다.
+    /// 그대로 버리면 다음 곡 rate가 달라도 미리 멈추지 못하고, 곡 전환 효과가 이미 시작된 뒤에야 바꾼다)
+    private var upcomingDuringSwitch: (player: String, item: String, format: MusicLogTracker.Format)?
 
     private var logProcess: Process?
     private var lastRateWeSet: Double?
@@ -152,6 +163,7 @@ public final class RateSwitcher {
                 guard let self else { return }
                 onMessage?(.detail(L("Track      P/%@ %@ → %@", player, from ?? "-", to ?? "-")))
                 disarmEndWatch()
+                upcomingDuringSwitch = nil
                 nextRate = nil
                 // 전환 계획은 떠난 곡의 것이다
                 plannedStart = nil
@@ -459,7 +471,16 @@ public final class RateSwitcher {
             switchInFlight = false
             lastOutcome = pendingOutcome
             phase = .idle
+            armUpcomingDeferredDuringSwitch()
         }
+    }
+
+    private func armUpcomingDeferredDuringSwitch() {
+        guard let deferred = upcomingDuringSwitch else { return }
+        upcomingDuringSwitch = nil
+        // 그사이 그 곡이 이미 지금 곡이 됐으면 다음 곡이 아니다
+        guard deferred.item != tracker.currentItem(of: deferred.player) else { return }
+        upcomingPrepared(player: deferred.player, item: deferred.item, format: deferred.format)
     }
 
     private func resumeHeld(generation: Int) {
@@ -468,6 +489,7 @@ public final class RateSwitcher {
         switchInFlight = false
         lastOutcome = pendingOutcome
         phase = .idle
+        armUpcomingDeferredDuringSwitch()
         guard let held = heldPause else { return }
         heldPause = nil
         let state = MusicScripting.PauseState(persistentID: held.persistentID, action: resumeAction)
@@ -542,7 +564,11 @@ public final class RateSwitcher {
     /// 다음 곡의 rate가 지금과 다르면, 현재 곡이 끝나기 직전에 멈추도록 감시를 건다.
     /// 곡이 넘어간 뒤에 멈추면 새 곡 앞부분이 잠깐 새어 나가므로, 넘어가기 전에 멈추는 게 근본 해결.
     private func upcomingPrepared(player: String, item: String, format: MusicLogTracker.Format) {
-        guard settleDelay != nil, !dryRun, !switchInFlight else { return }
+        if switchInFlight {
+            upcomingDuringSwitch = (player, item, format)
+            return
+        }
+        guard settleDelay != nil, !dryRun else { return }
         guard let device = AudioDevice.defaultOutput,
               device.nominalSampleRate != format.sampleRate, device.supports(format.sampleRate) else {
             disarmEndWatch()
@@ -576,8 +602,9 @@ public final class RateSwitcher {
                 // AutoMix·크로스페이드는 곡 끝보다 먼저 다음 곡을 겹치기 시작하므로, 그 전에 멈춰야 전환이 시작되지 않는다
                 let overlaps = transitionStart.map { $0 > position && $0 < finish } ?? false
                 let remaining = (overlaps ? transitionStart! : finish) - position
-                if remaining > preEndLead + 0.5 {
-                    recheck(min(remaining - preEndLead - 0.4, 5))
+                let leadTime = overlaps ? max(preEndLead, transitionLead) : preEndLead
+                if remaining > leadTime + 0.5 {
+                    recheck(min(remaining - leadTime - 0.4, 5))
                     return
                 }
                 // 다음 곡을 너무 늦게 알게 돼 곡 끝까지 거의 안 남았으면, 실제 곡 전환 때 처리한다.
@@ -588,10 +615,10 @@ public final class RateSwitcher {
                     onMessage?(.info(L("Learned the next track’s format as the track changed (e.g. skipped), switching when it changes")))
                     return
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + max(remaining - preEndLead, 0)) { [self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(remaining - leadTime, 0)) { [self] in
                     guard generation == endWatchGeneration, settleDelay != nil else { return }
                     disarmEndWatch()
-                    let lead = Int(min(remaining, preEndLead) * 1000)
+                    let lead = Int(min(remaining, leadTime) * 1000)
                     onMessage?(.info(overlaps ? L("Pausing %ldms before the song transition", lead)
                                               : L("Pausing %ldms before the end", lead)))
                     let format = upcoming.format
