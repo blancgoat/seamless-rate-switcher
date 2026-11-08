@@ -10,9 +10,13 @@ APP="$ROOT/build/$DISPLAY_NAME.app"
 VERSION=$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 BUILD=$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)
 
-swift build -c release --build-system native --package-path "$ROOT" --product "$NAME" 2>&1 | grep -v "deprecated" || true
+# 빌드가 실패해도 이전 빌드 결과물이 남아 있으므로, 실행 파일이 있는지가 아니라 빌드 종료 코드로 판단한다
+# (그러지 않으면 컴파일 오류가 나도 예전 실행 파일을 그대로 묶어 설치한다)
+BUILD_STATUS=0
+BUILD_OUTPUT=$(swift build -c release --build-system native --package-path "$ROOT" --product "$NAME" 2>&1) || BUILD_STATUS=$?
+print -r -- "$BUILD_OUTPUT" | grep -v "deprecated" || true
+(( BUILD_STATUS == 0 )) || { echo "build failed"; exit 1; }
 BIN="$ROOT/.build/release/$NAME"
-[[ -x "$BIN" ]] || { echo "build failed"; exit 1; }
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
