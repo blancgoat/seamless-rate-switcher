@@ -82,7 +82,15 @@ public enum MusicScripting {
         var did = "play"
         switch state.action {
         case .advance:
-            if let id = state.persistentID, currentID == id { MusicEvents.nextTrack(); did = "next+play" }
+            // 곡 전환 효과(크로스페이드·AutoMix)를 켜 두면 Music이 다음 곡을 겹쳐 틀 준비(작게 시작하는 앞부분)를 해 둔다.
+            // 그대로 재생하면 겹치지 않는데도 첫 0.5초쯤이 작게 나와 앞이 잘린 것처럼 들린다 (MOTU 출력 미터로 확인).
+            // 처음으로 다시 맞추면 그 준비를 버리고 원래 크기로 시작한다
+            if let id = state.persistentID, currentID == id {
+                MusicEvents.setPlayerPosition(0)
+                MusicEvents.nextTrack()
+                MusicEvents.setPlayerPosition(0)
+                did = "rewind+next+rewind+play"
+            }
         case .rewind:
             MusicEvents.setPlayerPosition(0); did = "rewind+play"
         case .resume:
