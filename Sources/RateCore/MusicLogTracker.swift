@@ -89,13 +89,19 @@ public final class MusicLogTracker {
             let player = Self.outerPlayer(m[0])
             let item = m[1]
             let format = Format(codec: m[2], sampleRate: rate)
+            let key = "\(player)|\(item)"
+            // 이 로그는 재생을 시작할 때마다(일시정지 후 다시 재생할 때도) 찍히고, 무손실 곡도 처음 여는
+            // 손실(AAC) 스트림 기준으로 알린다 (예: qlac 96000 곡인데 [Rendition Stereo] qaac 48000).
+            // 이미 포맷을 아는 곡에 이걸 반영하면 48000으로 전환 → 일시정지 → qlac 96000으로 되돌림 → 재생 →
+            // 다시 이 로그가 qaac 48000을 알림 … 으로 끝없이 반복된다. 그래서 포맷을 모르는 곡에만 쓴다.
+            guard formats[key] == nil else { return nil }
             // 지금 곡(또는 포맷을 기다리는 곡)이면 AudioQueue 로그와 똑같이 다룬다
             if currentItem[player] == item || pending[player] == item {
                 return learn(player: player, item: item, format: format)
             }
             // 곧 시작할 곡: 곡 전환 로그가 바로 뒤따르므로 기록만 해 둔다.
             // (다음 곡 미리 불러오기로 다루면 곡 끝 감시를 걸게 되는데, 이미 곡이 넘어가는 중이다)
-            formats["\(player)|\(item)"] = format
+            formats[key] = format
             return nil
         }
 
